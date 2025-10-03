@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class ProfessorDashboard extends StatelessWidget {
   const ProfessorDashboard({Key? key}) : super(key: key);
@@ -23,7 +24,7 @@ class ProfessorDashboard extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             const Text(
-              "Welcome, Pushpraj Nareti",
+              "Welcome, Professor",
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.white,
@@ -51,13 +52,13 @@ class ProfessorDashboard extends StatelessWidget {
                 mainAxisSpacing: 10,
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildDashboardTile(Icons.warning, "Complaint"),
-                  _buildDashboardTile(Icons.directions_walk, "Gatepass"),
-                  _buildDashboardTile(Icons.shopping_cart, "Buy/Sell"),
-                  _buildDashboardTile(Icons.contacts, "Contacts"),
-                  _buildDashboardTile(Icons.search, "Found/Lost"),
-                  _buildDashboardTile(Icons.help_outline, "Contact\nDevelopers"),
-                  _buildDashboardTile(Icons.calendar_today, "Session"),
+                  _buildDashboardTile(context, Icons.warning, "Complaint"),
+                  _buildDashboardTile(context, Icons.directions_walk, "Gatepass"),
+                  _buildDashboardTile(context, Icons.shopping_cart, "Buy/Sell"),
+                  _buildDashboardTile(context, Icons.contacts, "Contacts"),
+                  _buildDashboardTile(context, Icons.search, "Found/Lost"),
+                  _buildDashboardTile(context, Icons.help_outline, "Contact\nDevelopers"),
+                  _buildDashboardTile(context, Icons.calendar_today, "Session"),
                 ],
               ),
             ),
@@ -106,9 +107,13 @@ class ProfessorDashboard extends StatelessWidget {
     );
   }
 
-  Widget _buildDashboardTile(IconData icon, String label) {
+  Widget _buildDashboardTile(BuildContext context, IconData icon, String label) {
     return GestureDetector(
-      onTap: () {},
+      onTap: () {
+        if (label == 'Session') {
+          context.push('/SessionCreation/professor');
+        }
+      },
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFFB39DDB), // Lavender tile color

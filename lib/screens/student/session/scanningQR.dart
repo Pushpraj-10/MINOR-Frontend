@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class ScannerQRScreen extends StatefulWidget {
@@ -15,28 +14,6 @@ class _ScannerQRScreenState extends State<ScannerQRScreen> {
 
   Future<void> _sendTokenRequest(String token) async {
     setState(() => _isProcessing = true);
-
-    try {
-      final response = await http.post(
-        Uri.parse("http://localhost:4000/iiitnr/studentapi/attendance/mark"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"token": token}),
-      );
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        _showPopup("Success", "Attendance marked successfully!");
-      } else {
-        _showPopup("Failed", "Error: ${response.body}");
-      }
-    } catch (e) {
-      if (mounted) {
-        _showPopup("Error", "Something went wrong: $e");
-      }
-    } finally {
-      setState(() => _isProcessing = false);
-    }
   }
 
   void _showPopup(String title, String message) {

@@ -1,27 +1,19 @@
-// In your main.dart
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/professor/dashboard.dart';
-import 'package:frontend/screens/student/dashboard.dart';
-import 'package:frontend/screens/student/scanningQR.dart';
-import 'package:frontend/screens/professor/sessionCreation.dart';
+import 'package:frontend/navigation/app_router.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const MinorProject());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MinorProject extends StatelessWidget {
+  const MinorProject({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Dashboard UI',
-      theme: ThemeData(
-        primarySwatch: Colors.deepPurple,
-        fontFamily: 'Roboto', // Or any font you prefer
-      ),
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      home: const StudentDashboard(),// Set the dashboard as the home screen.
+      title: 'MINOR-Project',
+      routerConfig: router,
     );
   }
 }
