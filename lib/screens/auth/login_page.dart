@@ -50,7 +50,7 @@ class _LoginPageState extends State<LoginPage> {
 
       // Show a success message and navigate
       if (mounted) {
-        context.go('/dashboard/student');
+        context.go('/student/dashboard');
       }
     }
   }

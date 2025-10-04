@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/navigation/app_router.dart';
 
-void main() {
+Future<void> main() async {
+  // 2. Ensure that the Flutter bindings are initialized before running the app
+  WidgetsFlutterBinding.ensureInitialized();
+
   runApp(const MinorProject());
 }
 

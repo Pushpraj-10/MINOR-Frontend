@@ -111,7 +111,7 @@ class ProfessorDashboard extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         if (label == 'Session') {
-          context.push('/SessionCreation/professor');
+          context.push('/professor/session');
         }
       },
       child: Container(

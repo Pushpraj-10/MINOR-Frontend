@@ -5,6 +5,7 @@ import 'package:frontend/screens/auth/login_page.dart';
 import 'package:frontend/screens/professor/dashboard.dart';
 import 'package:frontend/screens/student/dashboard.dart';
 import 'package:frontend/screens/professor/session/sessionCreation.dart';
+import 'package:frontend/screens/student/session/face_detector_view.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -16,21 +17,27 @@ final GoRouter router = GoRouter(
       },
     ),
     GoRoute(
-      path: '/dashboard/student',
+      path: '/student/dashboard',
       builder: (BuildContext context, GoRouterState state) {
         return StudentDashboard();
       },
     ),
     GoRoute(
-      path: '/dashboard/professor',
+      path: '/professor/dashboard',
       builder: (BuildContext context, GoRouterState state) {
         return ProfessorDashboard();
       },
     ),
     GoRoute(
-      path: '/SessionCreation/professor',
+      path: '/professor/session',
       builder: (BuildContext context, GoRouterState state) {
         return CreatePassPage();
+      },
+    ),
+    GoRoute(
+      path: '/student/attendance',
+      builder: (BuildContext context, GoRouterState state) {
+        return FaceDetectionPage();
       },
     ),
   ],
