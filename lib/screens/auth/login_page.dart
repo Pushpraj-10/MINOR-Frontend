@@ -104,13 +104,9 @@ class _LoginPageState extends State<LoginPage> {
                       return 'Please enter your email';
                     }
 
-                    if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
-                      return 'Please enter a valid email address';
-                    }
-
-                    if (!RegExp(r'\S+@iiitnr.edu.in').hasMatch(value)) {
-                      return 'Please enter your institute email address';
-                    }
+                    // if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
+                    //   return 'Please enter a valid email address';
+                    // }
 
                     return null;
                   },
