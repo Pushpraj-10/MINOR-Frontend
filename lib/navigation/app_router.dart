@@ -5,7 +5,7 @@ import 'package:frontend/screens/auth/login_page.dart';
 import 'package:frontend/screens/professor/dashboard.dart';
 import 'package:frontend/screens/student/dashboard.dart';
 import 'package:frontend/screens/professor/session/sessionCreation.dart';
-import 'package:frontend/screens/student/session/dashboard_page.dart';
+import 'package:frontend/screens/student/session/attendance_scan_page.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -37,7 +37,7 @@ final GoRouter router = GoRouter(
     GoRoute(
       path: '/student/attendance',
       builder: (BuildContext context, GoRouterState state) {
-        return DashboardPage();
+        return const AttendanceScanPage();
       },
     ),
   ],
