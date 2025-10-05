@@ -2,103 +2,87 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/api/api_client.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class RegisterPage extends StatefulWidget {
+  const RegisterPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<RegisterPage> createState() => _RegisterPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
-  // A key to identify and validate the form
+class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
-
-  // Controllers to manage the text in the input fields
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
-  // State variables for UI logic
   bool _isPasswordVisible = false;
   bool _isLoading = false;
 
-  // Clean up the controllers when the widget is removed from the widget tree
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  /// Handles the login button press
-  Future<void> _login() async {
-    // Validate the form inputs
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
+    try {
+      final name = _nameController.text.trim();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
 
-      try {
-        final email = _emailController.text.trim();
-        final password = _passwordController.text;
-        final res = await ApiClient.I.login(email: email, password: password);
-        final role = (res['user']?['role'] as String?) ?? 'student';
-        if (!mounted) return;
-        if (role == 'professor') {
-          context.go('/professor/dashboard');
-        } else {
-          context.go('/student/dashboard');
-        }
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login failed')),
-        );
-      }
+      final response = await ApiClient.I.register(
+        email: email,
+        password: password,
+        name: name,
+      );
 
-      setState(() {
-        _isLoading = false;
-      });
+      // Log the API response
+      debugPrint('Registration response: $response');
 
-      // navigation is handled above
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Registration successful. Please login.')),
+      );
+      context.go('/');
+    } catch (e, stackTrace) {
+      // Log the error and stack trace
+      debugPrint('Registration failed: $e');
+      debugPrint('$stackTrace');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Registration failed')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: const Text('Create Account')),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
           child: Form(
             key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                const SizedBox(height: 80.0),
-                // Logo or App Name
-                Image.asset(
-                  'assets/images/IIITNR_Logo.png',
-                  width: 150,
-                  height: 150,
+              children: [
+                const SizedBox(height: 24.0),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-                const SizedBox(height: 48.0),
-                Text(
-                  'Welcome Back!',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 8.0),
-                Text(
-                  'Sign in to continue',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 48.0),
-
-                // Email Text Field
+                const SizedBox(height: 16.0),
                 TextFormField(
                   controller: _emailController,
                   decoration: const InputDecoration(
@@ -111,17 +95,10 @@ class _LoginPageState extends State<LoginPage> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your email';
                     }
-
-                    // if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
-                    //   return 'Please enter a valid email address';
-                    // }
-
                     return null;
                   },
                 ),
                 const SizedBox(height: 16.0),
-
-                // Password Text Field
                 TextFormField(
                   controller: _passwordController,
                   obscureText: !_isPasswordVisible,
@@ -146,14 +123,15 @@ class _LoginPageState extends State<LoginPage> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your password';
                     }
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters';
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 24.0),
-
-                // Login Button
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
+                  onPressed: _isLoading ? null : _register,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16.0),
                     shape: RoundedRectangleBorder(
@@ -169,22 +147,12 @@ class _LoginPageState extends State<LoginPage> {
                             strokeWidth: 2,
                           ),
                         )
-                      : const Text('Login'),
+                      : const Text('Register'),
                 ),
-                const SizedBox(height: 16.0),
-
-                // Sign Up Link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("Don't have an account?"),
-                    TextButton(
-                      onPressed: () {
-                        context.go('/register');
-                      },
-                      child: const Text('Sign Up'),
-                    ),
-                  ],
+                const SizedBox(height: 12.0),
+                TextButton(
+                  onPressed: () => context.go('/'),
+                  child: const Text('Back to Login'),
                 ),
               ],
             ),

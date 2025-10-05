@@ -1,8 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:frontend/api/api_client.dart';
 
-class ProfessorDashboard extends StatelessWidget {
+class ProfessorDashboard extends StatefulWidget {
   const ProfessorDashboard({Key? key}) : super(key: key);
+
+  @override
+  State<ProfessorDashboard> createState() => _ProfessorDashboardState();
+}
+
+class _ProfessorDashboardState extends State<ProfessorDashboard> {
+  String? _name;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final me = await ApiClient.I.me();
+      if (!mounted) return;
+      setState(() {
+        _name = (me['user']?['name'] as String?) ?? 'Professor';
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await ApiClient.I.logout();
+    } finally {
+      if (!mounted) return;
+      context.go('/');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,20 +61,25 @@ class ProfessorDashboard extends StatelessWidget {
               width: 24,
             ),
             const SizedBox(width: 8),
-            const Text(
-              "Welcome, Professor",
-              style: TextStyle(
+            Text(
+              _loading ? 'Loading...' : 'Welcome, ${_name ?? 'Professor'}',
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.white,
               ),
             ),
           ],
         ),
-        actions: const [
-          Icon(Icons.share),
-          SizedBox(width: 12),
-          Icon(Icons.settings),
-          SizedBox(width: 12),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (val) {
+              if (val == 'logout') _logout();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'logout', child: Text('Logout')),
+            ],
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
@@ -53,11 +96,13 @@ class ProfessorDashboard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   _buildDashboardTile(context, Icons.warning, "Complaint"),
-                  _buildDashboardTile(context, Icons.directions_walk, "Gatepass"),
+                  _buildDashboardTile(
+                      context, Icons.directions_walk, "Gatepass"),
                   _buildDashboardTile(context, Icons.shopping_cart, "Buy/Sell"),
                   _buildDashboardTile(context, Icons.contacts, "Contacts"),
                   _buildDashboardTile(context, Icons.search, "Found/Lost"),
-                  _buildDashboardTile(context, Icons.help_outline, "Contact\nDevelopers"),
+                  _buildDashboardTile(
+                      context, Icons.help_outline, "Contact\nDevelopers"),
                   _buildDashboardTile(context, Icons.calendar_today, "Session"),
                 ],
               ),
@@ -107,7 +152,8 @@ class ProfessorDashboard extends StatelessWidget {
     );
   }
 
-  Widget _buildDashboardTile(BuildContext context, IconData icon, String label) {
+  Widget _buildDashboardTile(
+      BuildContext context, IconData icon, String label) {
     return GestureDetector(
       onTap: () {
         if (label == 'Session') {

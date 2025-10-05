@@ -1,8 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:frontend/api/api_client.dart';
 
-class StudentDashboard extends StatelessWidget {
+class StudentDashboard extends StatefulWidget {
   const StudentDashboard({Key? key}) : super(key: key);
+
+  @override
+  State<StudentDashboard> createState() => _StudentDashboardState();
+}
+
+class _StudentDashboardState extends State<StudentDashboard> {
+  String? _name;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final me = await ApiClient.I.me();
+      if (!mounted) return;
+      setState(() {
+        _name = (me['user']?['name'] as String?) ?? 'Student';
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await ApiClient.I.logout();
+    } finally {
+      if (!mounted) return;
+      context.go('/');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,20 +61,25 @@ class StudentDashboard extends StatelessWidget {
               width: 24,
             ),
             const SizedBox(width: 8),
-            const Text(
-              "Welcome, Pushpraj Nareti",
-              style: TextStyle(
+            Text(
+              _loading ? 'Loading...' : 'Welcome, ${_name ?? 'Student'}',
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.white,
               ),
             ),
           ],
         ),
-        actions: const [
-          Icon(Icons.share),
-          SizedBox(width: 12),
-          Icon(Icons.settings),
-          SizedBox(width: 12),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (val) {
+              if (val == 'logout') _logout();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'logout', child: Text('Logout')),
+            ],
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(

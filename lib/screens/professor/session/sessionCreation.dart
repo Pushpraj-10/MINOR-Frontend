@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:frontend/api/api_client.dart';
 
 class CreatePassPage extends StatefulWidget {
   const CreatePassPage({super.key});
@@ -86,16 +87,19 @@ class _CreatePassPageState extends State<CreatePassPage> {
     );
   }
 
-  void _submitForm() {
+  Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isSubmitting = true;
     });
 
-    const tokenFromServer = "sample_token_12345";
-
-    Future.delayed(const Duration(seconds: 1), () {
+    try {
+      final res = await ApiClient.I.createSession(
+        title: _selectedSession,
+        durationMinutes: _validityMinutes,
+      );
+      if (!mounted) return;
       setState(() {
         _isSubmitting = false;
       });
@@ -117,13 +121,13 @@ class _CreatePassPageState extends State<CreatePassPage> {
                 mainAxisSize: MainAxisSize.min, // This is still important
                 children: [
                   QrImageView(
-                    data: tokenFromServer,
+                    data: (res['qrToken'] as String?) ?? '',
                     version: QrVersions.auto,
                     size: 200,
                     backgroundColor: Colors.white,
                   ),
                   const SizedBox(height: 12),
-                  SelectableText("Token: $tokenFromServer",
+                  SelectableText("Token: ${res['qrToken']}",
                       style: const TextStyle(color: Colors.white)),
                   const SizedBox(height: 12),
                   Text("Valid for $_validityMinutes minutes",
@@ -142,7 +146,15 @@ class _CreatePassPageState extends State<CreatePassPage> {
           );
         },
       );
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to create session')),
+      );
+    }
   }
 
   @override

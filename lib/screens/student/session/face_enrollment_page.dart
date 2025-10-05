@@ -14,6 +14,7 @@ import 'package:image/image.dart' as img;
 import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 
 import 'face_recognition_service.dart';
+import 'package:frontend/api/api_client.dart';
 
 class FaceEnrollmentPage extends StatefulWidget {
   const FaceEnrollmentPage({Key? key}) : super(key: key);
@@ -167,12 +168,20 @@ class _FaceEnrollmentPageState extends State<FaceEnrollmentPage> {
   Future<void> _saveEnrollment() async {
     if (_capturedEmbedding == null || !mounted) return;
     await _faceService.saveEmbedding(_capturedEmbedding!);
+    try {
+      final me = await ApiClient.I.me();
+      final uid = (me['user']?['uid'] as String?) ?? '';
+      final List<double> embedding =
+          _capturedEmbedding!.map((e) => e.toDouble()).toList();
+      await ApiClient.I.registerFace(uid: uid, embedding: embedding);
+    } catch (_) {}
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Enrollment Successful!')),
     );
-    context.go('/student/attendance');
+    context.go('/student/dasboard');
   }
+
 
   void _retryEnrollment() {
     setState(() {
