@@ -34,7 +34,10 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
   bool _isProcessing = false;
   String _statusText = 'Initializing...';
   double? _similarity;
-  static const double similarityThreshold = 0.52;
+  List<Face> _faces = []; // for painter
+
+  // Default threshold — tune it for your app/model.
+  static const double similarityThreshold = 0.6;
 
   @override
   void initState() {
@@ -44,8 +47,9 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
   Future<void> _initializeAll() async {
     setState(() => _statusText = 'Loading model...');
+    // Corrected model name for consistency
     _faceService = await FaceRecognitionService.create(
-      modelAsset: 'assets/models/mobile_facenet.tflite',
+      modelAsset: 'assets/models/mobile_face_net.tflite',
     );
 
     final options = FaceDetectorOptions(
@@ -62,9 +66,14 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       }
     } else {
       await _initCamera();
-      if (mounted) {
-        setState(() => _initState = _InitState.ready);
+      if (mounted && _cameraController?.value.isInitialized == true) {
+        setState(() {
+          _initState = _InitState.ready;
+          _statusText = 'Ready to scan face';
+        });
         _startStream();
+      } else if (mounted) {
+        setState(() => _statusText = 'Camera failed to initialize.');
       }
     }
   }
@@ -124,10 +133,14 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       if (inputImage != null) {
         try {
           final faces = await _faceDetector!.processImage(inputImage);
+          if (mounted) setState(() => _faces = faces);
+
           if (faces.isNotEmpty) {
-            if (mounted) await _cameraController?.stopImageStream();
+            // stop stream temporarily, process first face
+            await _cameraController?.stopImageStream();
             await _processDetectedFaceFromCameraImage(cameraImage, faces.first);
-            await _safeRestartStream();
+          } else {
+            if (mounted && _similarity == null) setState(() => _statusText = 'Look directly at the camera.');
           }
         } catch (e, st) {
           debugPrint('Face detection error: $e\n$st');
@@ -143,12 +156,13 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     try {
       setState(() => _statusText = 'Processing face...');
       final img.Image? fullImage = await _convertCameraImageToImage(cameraImage);
+
       if (fullImage == null) {
-        setState(() => _statusText = 'Frame conversion failed');
+        setState(() => _statusText = 'Frame conversion failed. Retrying...');
         return;
       }
 
-      // bounding box is in the same orientation because conversion applied rotation/mirror
+      // Crop the face using bounding box 
       final rect = face.boundingBox;
       final int left = rect.left.round().clamp(0, fullImage.width - 1);
       final int top = rect.top.round().clamp(0, fullImage.height - 1);
@@ -157,31 +171,41 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
       img.Image faceCrop = img.copyCrop(fullImage, x: left, y: top, width: width, height: height);
 
+      // Align face using eyes if available
       final leftEye = face.landmarks[FaceLandmarkType.leftEye];
       final rightEye = face.landmarks[FaceLandmarkType.rightEye];
       if (leftEye != null && rightEye != null) {
         final dx = rightEye.position.x - leftEye.position.x;
         final dy = rightEye.position.y - leftEye.position.y;
         final angle = math.atan2(dy, dx) * (180 / math.pi);
-        faceCrop = img.copyRotate(faceCrop, angle: -angle);
+        // Ensure integer angle for copyRotate
+        faceCrop = img.copyRotate(faceCrop, angle: -angle.round()); 
       }
 
       final probe = _faceService.getEmbeddingFromImage(faceCrop);
       final stored = await _faceService.loadEmbedding();
+
+      String newStatus;
+      double? sim;
+
       if (stored != null) {
-        final sim = _faceService.cosineSimilarity(probe, stored);
-        if (mounted) {
-          setState(() {
-            _similarity = sim;
-            _statusText = sim >= similarityThreshold ? 'Verified' : 'Not Verified';
-          });
-        }
+        sim = _faceService.cosineSimilarity(probe, stored);
+        newStatus = sim >= similarityThreshold ? 'Verified' : 'Verification Failed';
       } else {
-        setState(() => _statusText = 'No stored embedding');
+        newStatus = 'No stored embedding found.';
+      }
+
+      if (mounted) {
+        setState(() {
+          _similarity = sim;
+          _statusText = newStatus;
+        });
       }
     } catch (e, st) {
       debugPrint('Error processing face: $e\n$st');
-      setState(() => _statusText = 'Processing error');
+      if (mounted) setState(() => _statusText = 'Processing error. Retrying...');
+    } finally {
+      await _safeRestartStream();
     }
   }
 
@@ -200,6 +224,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     }
     _cameraController?.dispose();
     _faceDetector?.close();
+    _faceService.dispose(); // Ensure TFLite resources are released
     super.dispose();
   }
 
@@ -209,14 +234,17 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       appBar: AppBar(title: const Text('Face Verification')),
       body: _buildBody(),
       bottomNavigationBar: Container(
-        color: Colors.black87,
+        color: _similarity == null
+            ? Colors.black87
+            : (_similarity! >= similarityThreshold ? Colors.green.shade700 : Colors.red.shade700),
         padding: const EdgeInsets.all(12),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(_statusText, style: const TextStyle(color: Colors.white, fontSize: 16)),
             if (_similarity != null)
-              Text('Accuracy: ${(_similarity! * 100).toStringAsFixed(2)}%', style: const TextStyle(color: Colors.white, fontSize: 16)),
+              Text('Accuracy: ${(_similarity! * 100).toStringAsFixed(2)}%',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -225,11 +253,33 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
   Widget _buildBody() {
     if (_initState == _InitState.ready && _cameraController?.value.isInitialized == true) {
-      return Transform.scale(scaleX: -1, child: CameraPreview(_cameraController!));
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Transform.scale(scaleX: -1, child: CameraPreview(_cameraController!)),
+          if (_faces.isNotEmpty && _cameraController!.value.previewSize != null)
+            CustomPaint(
+              painter: FacePainter(
+                faces: _faces,
+                imageSize: _cameraController!.value.previewSize!,
+                cameraLensDirection: _cameraController!.description.lensDirection,
+              ),
+            ),
+        ],
+      );
+    }
+    if (_initState == _InitState.needsEnrollment) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Text('Registration is required before face verification can begin.'),
+        ),
+      );
     }
     return const Center(child: CircularProgressIndicator());
   }
 
+  // --- Image Conversion Functions (Used by ML Kit) ---
   InputImage? _cameraImageToInputImage(CameraImage image) {
     if (_cameraController == null) return null;
     final camera = _cameraController!.description;
@@ -290,7 +340,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     return allBytes.done().buffer.asUint8List();
   }
 
-  // Convert CameraImage to img.Image using an isolate to avoid UI jank.
+  // --- Isolate Image Conversion for Face Recognition Service ---
   Future<img.Image?> _convertCameraImageToImage(CameraImage image) async {
     try {
       if (image.format.group == ImageFormatGroup.yuv420) {
@@ -331,8 +381,9 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 }
 
 // --------------------
-// Isolate helpers (top-level)
+// ISOLATE FUNCTIONS (TOP-LEVEL)
 // --------------------
+
 Future<Uint8List> _yuv420ToJpegBytes(Map<String, dynamic> params) async {
   final int width = params['width'] as int;
   final int height = params['height'] as int;
@@ -340,7 +391,7 @@ Future<Uint8List> _yuv420ToJpegBytes(Map<String, dynamic> params) async {
   final Uint8List u = params['u'] as Uint8List;
   final Uint8List v = params['v'] as Uint8List;
   final int uvRowStride = params['uvRowStride'] as int;
-  final int uvPixelStride = params['uvPixelStride'] as int;
+  final int uvPixelStride = params['uvPixelStride'] is int ? params['uvPixelStride'] as int : 1;
 
   final img.Image image = img.Image(width: width, height: height);
 
@@ -375,7 +426,15 @@ Future<Uint8List> _yuv420ToJpegBytes(Map<String, dynamic> params) async {
   final int rotationDegrees = (sensorOrientation + deviceDegrees) % 360;
 
   img.Image oriented = image;
-  if (rotationDegrees != 0) oriented = img.copyRotate(oriented, angle: rotationDegrees);
+
+  if (rotationDegrees == 90) {
+    oriented = img.copyRotate(oriented, angle: 90);
+  } else if (rotationDegrees == 180) {
+    oriented = img.copyRotate(oriented, angle: 180);
+  } else if (rotationDegrees == 270) {
+    oriented = img.copyRotate(oriented, angle: 270);
+  }
+
   if (mirrorFront) oriented = img.flipHorizontal(oriented);
 
   final List<int> jpg = img.encodeJpg(oriented, quality: 85);
@@ -397,7 +456,8 @@ Future<Uint8List> _bgraToJpegBytes(Map<String, dynamic> params) async {
   } else {
     throw ArgumentError('Unsupported bytes type: ${bytesParam.runtimeType}');
   }
-
+  
+  // Pass ByteBuffer directly as required by image.fromBytes signature
   final img.Image image = img.Image.fromBytes(width: width, height: height, bytes: byteBuffer, order: img.ChannelOrder.bgra);
 
   final int sensorOrientation = params['sensorOrientation'] as int;
@@ -408,9 +468,76 @@ Future<Uint8List> _bgraToJpegBytes(Map<String, dynamic> params) async {
   final int rotationDegrees = (sensorOrientation + deviceDegrees) % 360;
 
   img.Image oriented = image;
-  if (rotationDegrees != 0) oriented = img.copyRotate(oriented, angle: rotationDegrees);
+
+  if (rotationDegrees == 90) {
+    oriented = img.copyRotate(oriented, angle: 90);
+  } else if (rotationDegrees == 180) {
+    oriented = img.copyRotate(oriented, angle: 180);
+  } else if (rotationDegrees == 270) {
+    oriented = img.copyRotate(oriented, angle: 270);
+  }
+
   if (mirrorFront) oriented = img.flipHorizontal(oriented);
 
   final List<int> jpg = img.encodeJpg(oriented, quality: 85);
   return Uint8List.fromList(jpg);
+}
+
+// --------------------
+// FacePainter Class for Bounding Box Visualization
+// --------------------
+class FacePainter extends CustomPainter {
+  final List<Face> faces;
+  final Size imageSize;
+  final CameraLensDirection cameraLensDirection;
+
+  FacePainter({
+    required this.faces,
+    required this.imageSize,
+    required this.cameraLensDirection,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..color = Colors.red;
+
+    // Scaling logic accounts for camera frame (imageSize) being potentially rotated relative to the UI (size).
+    final double scaleX = size.width / imageSize.height;
+    final double scaleY = size.height / imageSize.width;
+
+    for (final face in faces) {
+      double left, top, right, bottom;
+
+      if (cameraLensDirection == CameraLensDirection.front) {
+        // Front camera requires mirroring coordinates
+        left = size.width - (face.boundingBox.left * scaleX);
+        top = face.boundingBox.top * scaleY;
+        right = size.width - (face.boundingBox.right * scaleX);
+        bottom = face.boundingBox.bottom * scaleY;
+      } else {
+        // Back camera
+        left = face.boundingBox.left * scaleX;
+        top = face.boundingBox.top * scaleY;
+        right = face.boundingBox.right * scaleX;
+        bottom = face.boundingBox.bottom * scaleY;
+      }
+
+      // Draw stable rect even if coordinates inverted
+      final double l = math.min(left, right);
+      final double r = math.max(left, right);
+      final double t = math.min(top, bottom);
+      final double b = math.max(top, bottom);
+      canvas.drawRect(Rect.fromLTRB(l, t, r, b), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(FacePainter oldDelegate) {
+    return oldDelegate.faces != faces ||
+        oldDelegate.imageSize != imageSize ||
+        oldDelegate.cameraLensDirection != cameraLensDirection;
+  }
 }
