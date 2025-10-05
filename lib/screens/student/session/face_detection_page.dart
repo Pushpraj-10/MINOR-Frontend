@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 import 'package:image/image.dart' as img;
+import 'package:go_router/go_router.dart';
 
 import 'face_recognition_service.dart';
 import 'dashboard_page.dart';
@@ -84,7 +85,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Registration Required'),
-        content: const Text('No face embedding is present. You have to register first.'),
+        content: const Text(
+            'No face embedding is present. You have to register first.'),
         actions: [
           TextButton(
             child: const Text('OK'),
@@ -109,10 +111,11 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       );
       _cameraController = CameraController(
         front,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup:
-            Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
+        imageFormatGroup: Platform.isIOS
+            ? ImageFormatGroup.bgra8888
+            : ImageFormatGroup.yuv420,
       );
       await _cameraController!.initialize();
     } catch (e, st) {
@@ -140,7 +143,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
             await _cameraController?.stopImageStream();
             await _processDetectedFaceFromCameraImage(cameraImage, faces.first);
           } else {
-            if (mounted && _similarity == null) setState(() => _statusText = 'Look directly at the camera.');
+            if (mounted && _similarity == null)
+              setState(() => _statusText = 'Look directly at the camera.');
           }
         } catch (e, st) {
           debugPrint('Face detection error: $e\n$st');
@@ -151,25 +155,29 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     });
   }
 
-  Future<void> _processDetectedFaceFromCameraImage(CameraImage cameraImage, Face face) async {
+  Future<void> _processDetectedFaceFromCameraImage(
+      CameraImage cameraImage, Face face) async {
     if (!mounted) return;
+    bool shouldRestartStream = true;
     try {
       setState(() => _statusText = 'Processing face...');
-      final img.Image? fullImage = await _convertCameraImageToImage(cameraImage);
+      final img.Image? fullImage =
+          await _convertCameraImageToImage(cameraImage);
 
       if (fullImage == null) {
         setState(() => _statusText = 'Frame conversion failed. Retrying...');
         return;
       }
 
-      // Crop the face using bounding box 
+      // Crop the face using bounding box
       final rect = face.boundingBox;
       final int left = rect.left.round().clamp(0, fullImage.width - 1);
       final int top = rect.top.round().clamp(0, fullImage.height - 1);
       final int width = rect.width.round().clamp(1, fullImage.width - left);
       final int height = rect.height.round().clamp(1, fullImage.height - top);
 
-      img.Image faceCrop = img.copyCrop(fullImage, x: left, y: top, width: width, height: height);
+      img.Image faceCrop = img.copyCrop(fullImage,
+          x: left, y: top, width: width, height: height);
 
       // Align face using eyes if available
       final leftEye = face.landmarks[FaceLandmarkType.leftEye];
@@ -179,7 +187,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
         final dy = rightEye.position.y - leftEye.position.y;
         final angle = math.atan2(dy, dx) * (180 / math.pi);
         // Ensure integer angle for copyRotate
-        faceCrop = img.copyRotate(faceCrop, angle: -angle.round()); 
+        faceCrop = img.copyRotate(faceCrop, angle: -angle.round());
       }
 
       final probe = _faceService.getEmbeddingFromImage(faceCrop);
@@ -187,10 +195,12 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
       String newStatus;
       double? sim;
+      bool verified = false;
 
       if (stored != null) {
         sim = _faceService.cosineSimilarity(probe, stored);
-        newStatus = sim >= similarityThreshold ? 'Verified' : 'Verification Failed';
+        verified = sim >= similarityThreshold;
+        newStatus = verified ? 'Verified' : 'Verification Failed';
       } else {
         newStatus = 'No stored embedding found.';
       }
@@ -201,18 +211,44 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
           _statusText = newStatus;
         });
       }
+
+      if (verified && mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Verification Successful'),
+            content: const Text('Your face has been verified.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        context.go('/student/dashboard');
+        shouldRestartStream = false;
+        return;
+      }
     } catch (e, st) {
       debugPrint('Error processing face: $e\n$st');
-      if (mounted) setState(() => _statusText = 'Processing error. Retrying...');
+      if (mounted)
+        setState(() => _statusText = 'Processing error. Retrying...');
     } finally {
-      await _safeRestartStream();
+      if (shouldRestartStream) {
+        await _safeRestartStream();
+      }
     }
   }
 
   Future<void> _safeRestartStream() async {
     if (!mounted) return;
     await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted && _cameraController != null && !_cameraController!.value.isStreamingImages) {
+    if (mounted &&
+        _cameraController != null &&
+        !_cameraController!.value.isStreamingImages) {
       _startStream();
     }
   }
@@ -236,15 +272,21 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       bottomNavigationBar: Container(
         color: _similarity == null
             ? Colors.black87
-            : (_similarity! >= similarityThreshold ? Colors.green.shade700 : Colors.red.shade700),
+            : (_similarity! >= similarityThreshold
+                ? Colors.green.shade700
+                : Colors.red.shade700),
         padding: const EdgeInsets.all(12),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_statusText, style: const TextStyle(color: Colors.white, fontSize: 16)),
+            Text(_statusText,
+                style: const TextStyle(color: Colors.white, fontSize: 16)),
             if (_similarity != null)
               Text('Accuracy: ${(_similarity! * 100).toStringAsFixed(2)}%',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -252,7 +294,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
   }
 
   Widget _buildBody() {
-    if (_initState == _InitState.ready && _cameraController?.value.isInitialized == true) {
+    if (_initState == _InitState.ready &&
+        _cameraController?.value.isInitialized == true) {
       return Stack(
         fit: StackFit.expand,
         children: [
@@ -262,7 +305,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
               painter: FacePainter(
                 faces: _faces,
                 imageSize: _cameraController!.value.previewSize!,
-                cameraLensDirection: _cameraController!.description.lensDirection,
+                cameraLensDirection:
+                    _cameraController!.description.lensDirection,
               ),
             ),
         ],
@@ -272,7 +316,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32.0),
-          child: Text('Registration is required before face verification can begin.'),
+          child: Text(
+              'Registration is required before face verification can begin.'),
         ),
       );
     }
@@ -294,9 +339,11 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
     InputImageRotation? rotation;
     if (Platform.isAndroid) {
-      final rotationCompensation = orientations[_cameraController!.value.deviceOrientation];
+      final rotationCompensation =
+          orientations[_cameraController!.value.deviceOrientation];
       if (rotationCompensation == null) return null;
-      final compensatedOrientation = (sensorOrientation + rotationCompensation) % 360;
+      final compensatedOrientation =
+          (sensorOrientation + rotationCompensation) % 360;
       rotation = InputImageRotationValue.fromRawValue(compensatedOrientation);
     } else if (Platform.isIOS) {
       rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
@@ -355,7 +402,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
           'uvPixelStride': image.planes[1].bytesPerPixel ?? 1,
           'sensorOrientation': _cameraController!.description.sensorOrientation,
           'deviceOrientation': _cameraController!.value.deviceOrientation.index,
-          'mirrorFront': _cameraController!.description.lensDirection == CameraLensDirection.front,
+          'mirrorFront': _cameraController!.description.lensDirection ==
+              CameraLensDirection.front,
         };
         final Uint8List jpeg = await compute(_yuv420ToJpegBytes, params);
         return img.decodeJpg(jpeg);
@@ -367,7 +415,8 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
           'bytes': image.planes[0].bytes,
           'sensorOrientation': _cameraController!.description.sensorOrientation,
           'deviceOrientation': _cameraController!.value.deviceOrientation.index,
-          'mirrorFront': _cameraController!.description.lensDirection == CameraLensDirection.front,
+          'mirrorFront': _cameraController!.description.lensDirection ==
+              CameraLensDirection.front,
         };
         final Uint8List jpeg = await compute(_bgraToJpegBytes, params);
         return img.decodeJpg(jpeg);
@@ -391,7 +440,8 @@ Future<Uint8List> _yuv420ToJpegBytes(Map<String, dynamic> params) async {
   final Uint8List u = params['u'] as Uint8List;
   final Uint8List v = params['v'] as Uint8List;
   final int uvRowStride = params['uvRowStride'] as int;
-  final int uvPixelStride = params['uvPixelStride'] is int ? params['uvPixelStride'] as int : 1;
+  final int uvPixelStride =
+      params['uvPixelStride'] is int ? params['uvPixelStride'] as int : 1;
 
   final img.Image image = img.Image(width: width, height: height);
 
@@ -422,7 +472,8 @@ Future<Uint8List> _yuv420ToJpegBytes(Map<String, dynamic> params) async {
   final int deviceOrientationIndex = params['deviceOrientation'] as int;
   final bool mirrorFront = params['mirrorFront'] as bool;
   const List<int> deviceIndexToDegrees = [0, 90, 180, 270];
-  final int deviceDegrees = deviceIndexToDegrees[deviceOrientationIndex % deviceIndexToDegrees.length];
+  final int deviceDegrees = deviceIndexToDegrees[
+      deviceOrientationIndex % deviceIndexToDegrees.length];
   final int rotationDegrees = (sensorOrientation + deviceDegrees) % 360;
 
   img.Image oriented = image;
@@ -456,15 +507,20 @@ Future<Uint8List> _bgraToJpegBytes(Map<String, dynamic> params) async {
   } else {
     throw ArgumentError('Unsupported bytes type: ${bytesParam.runtimeType}');
   }
-  
+
   // Pass ByteBuffer directly as required by image.fromBytes signature
-  final img.Image image = img.Image.fromBytes(width: width, height: height, bytes: byteBuffer, order: img.ChannelOrder.bgra);
+  final img.Image image = img.Image.fromBytes(
+      width: width,
+      height: height,
+      bytes: byteBuffer,
+      order: img.ChannelOrder.bgra);
 
   final int sensorOrientation = params['sensorOrientation'] as int;
   final int deviceOrientationIndex = params['deviceOrientation'] as int;
   final bool mirrorFront = params['mirrorFront'] as bool;
   const List<int> deviceIndexToDegrees = [0, 90, 180, 270];
-  final int deviceDegrees = deviceIndexToDegrees[deviceOrientationIndex % deviceIndexToDegrees.length];
+  final int deviceDegrees = deviceIndexToDegrees[
+      deviceOrientationIndex % deviceIndexToDegrees.length];
   final int rotationDegrees = (sensorOrientation + deviceDegrees) % 360;
 
   img.Image oriented = image;
