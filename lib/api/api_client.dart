@@ -179,4 +179,5 @@ class ApiClient {
     final res = await _dio.get(ApiConfig.attendanceBySession(sessionId));
     return res.data as Map<String, dynamic>;
   }
+
 }

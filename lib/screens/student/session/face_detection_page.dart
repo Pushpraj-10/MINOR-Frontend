@@ -260,7 +260,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     }
     _cameraController?.dispose();
     _faceDetector?.close();
-    _faceService.dispose(); // Ensure TFLite resources are released
+    _faceService.dispose();
     super.dispose();
   }
 
@@ -312,6 +312,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
         ],
       );
     }
+
     if (_initState == _InitState.needsEnrollment) {
       return const Center(
         child: Padding(
@@ -321,6 +322,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
         ),
       );
     }
+    
     return const Center(child: CircularProgressIndicator());
   }
 

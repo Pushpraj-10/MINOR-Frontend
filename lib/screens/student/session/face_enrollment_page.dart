@@ -179,9 +179,8 @@ class _FaceEnrollmentPageState extends State<FaceEnrollmentPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Enrollment Successful!')),
     );
-    context.go('/student/dasboard');
+    context.go('/student/dashboard');
   }
-
 
   void _retryEnrollment() {
     setState(() {
