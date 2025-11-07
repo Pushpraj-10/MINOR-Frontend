@@ -18,6 +18,9 @@ class ApiConfig {
   // Sessions
   static const String sessions = '/sessions';
   static const String sessionsCheckin = '/sessions/checkin';
+  static const String professorSessions = '/sessions/professor';
+  static String professorSessionAttendance(String sessionId) =>
+      '/sessions/professor/$sessionId/attendance';
 
   // Face
   static const String faceRegister = '/face/register';

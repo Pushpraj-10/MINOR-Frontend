@@ -9,7 +9,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'face_detection_page.dart';
 import 'face_enrollment_page.dart';
 import 'face_recognition_service.dart';
-import 'package:frontend/api/api_client.dart';
 
 class AttendanceScanPage extends StatefulWidget {
   const AttendanceScanPage({Key? key}) : super(key: key);
@@ -90,26 +89,12 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       } else {
         // Embedding exists -> verify
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FaceDetectionPage()),
+          MaterialPageRoute(
+              builder: (_) => FaceDetectionPage(qrToken: qrToken)),
         );
       }
 
-      // After returning, try check-in
-      final me = await ApiClient.I.me();
-      final uid = (me['user']?['uid'] as String?) ?? '';
-      final result = await ApiClient.I.checkin(
-        qrToken: qrToken,
-        studentUid: uid,
-        embedding: embedding?.map((e) => e.toDouble()).toList(),
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(result['verified'] == true
-                ? 'Attendance marked'
-                : 'Check-in recorded (unverified)')),
-      );
+      // Checkin is now handled by the face detection page
 
       if (!mounted) return;
       setState(() {
@@ -153,11 +138,13 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
                     final List<Barcode> barcodes = capture.barcodes;
                     if (barcodes.isNotEmpty) {
                       final value = barcodes.first.rawValue;
-                      if (value != null &&
-                          value.isNotEmpty &&
-                          !completer.isCompleted) {
-                        completer.complete(value);
-                        Navigator.of(context).pop();
+                      if (value != null && value.isNotEmpty) {
+                        // Expecting rotating payload: "{sessionId}:{token}".
+                        // Keep as is; FaceDetectionPage will parse it.
+                        if (!completer.isCompleted) {
+                          completer.complete(value);
+                          Navigator.of(context).pop();
+                        }
                       }
                     }
                   },
@@ -205,7 +192,29 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Attendance - Scan QR')),
+      backgroundColor: const Color(0xFF121212), // Dark mode background
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0f1d3a),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Row(
+          children: [
+            Image.asset(
+              "assets/images/IIITNR_Logo.png",
+              height: 24,
+              width: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Attendance - Scan QR',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _initializing
           ? const Center(child: CircularProgressIndicator())
           : Stack(

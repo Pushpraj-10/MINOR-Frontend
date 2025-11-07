@@ -14,8 +14,28 @@ class ErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF121212), // Dark mode background
       appBar: AppBar(
-        title: const Text("Page Not Found"),
+        backgroundColor: const Color(0xFF0f1d3a),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Row(
+          children: [
+            Image.asset(
+              "assets/images/IIITNR_Logo.png",
+              height: 24,
+              width: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              "Page Not Found",
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
       body: Center(
         child: Column(
@@ -30,7 +50,11 @@ class ErrorScreen extends StatelessWidget {
               padding: EdgeInsets.all(16.0),
               child: Text(
                 'Oops, something went wrong!',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -40,7 +64,7 @@ class ErrorScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Text(
                   error.toString(),
-                  style: TextStyle(color: Colors.grey[600]),
+                  style: const TextStyle(color: Colors.white70),
                   textAlign: TextAlign.center,
                 ),
               ),

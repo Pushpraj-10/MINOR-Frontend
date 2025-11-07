@@ -76,7 +76,13 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
               if (val == 'logout') _logout();
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: 'logout', child: Text('Logout')),
+              PopupMenuItem(
+                value: 'logout',
+                child: Text(
+                  'Logout',
+                  style: TextStyle(color: Colors.black87),
+                ),
+              ),
             ],
           ),
           const SizedBox(width: 8),
@@ -104,6 +110,7 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
                   _buildDashboardTile(
                       context, Icons.help_outline, "Contact\nDevelopers"),
                   _buildDashboardTile(context, Icons.calendar_today, "Session"),
+                  _buildDashboardTile(context, Icons.list_alt, "My Sessions"),
                 ],
               ),
             ),
@@ -158,6 +165,8 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
       onTap: () {
         if (label == 'Session') {
           context.push('/professor/session');
+        } else if (label == 'My Sessions') {
+          context.push('/professor/sessions');
         }
       },
       child: Container(

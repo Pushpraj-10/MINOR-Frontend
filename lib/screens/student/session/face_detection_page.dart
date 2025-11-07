@@ -14,13 +14,15 @@ import 'package:image/image.dart' as img;
 import 'package:go_router/go_router.dart';
 
 import 'face_recognition_service.dart';
-import 'dashboard_page.dart';
+import 'package:frontend/api/api_client.dart';
 
 // Init state enum
 enum _InitState { checking, needsEnrollment, ready }
 
 class FaceDetectionPage extends StatefulWidget {
-  const FaceDetectionPage({Key? key}) : super(key: key);
+  final String? qrToken;
+
+  const FaceDetectionPage({Key? key, this.qrToken}) : super(key: key);
 
   @override
   State<FaceDetectionPage> createState() => _FaceDetectionPageState();
@@ -36,9 +38,10 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
   String _statusText = 'Initializing...';
   double? _similarity;
   List<Face> _faces = []; // for painter
+  String? _currentUserUid; // Store current user UID for server verification
 
   // Default threshold — tune it for your app/model.
-  static const double similarityThreshold = 0.6;
+  static const double similarityThreshold = 0.3;
 
   @override
   void initState() {
@@ -48,6 +51,15 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
 
   Future<void> _initializeAll() async {
     setState(() => _statusText = 'Loading model...');
+
+    // Get current user info for server verification
+    try {
+      final userInfo = await ApiClient.I.me();
+      _currentUserUid = userInfo['user']?['uid'] as String?;
+    } catch (e) {
+      debugPrint('Failed to get user info: $e');
+    }
+
     // Corrected model name for consistency
     _faceService = await FaceRecognitionService.create(
       modelAsset: 'assets/models/mobile_face_net.tflite',
@@ -59,22 +71,52 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     );
     _faceDetector = FaceDetector(options: options);
 
-    final storedEmbedding = await _faceService.loadEmbedding();
-    if (storedEmbedding == null) {
+    // Check if user has face embeddings registered on backend
+    await _checkBackendEmbedding();
+  }
+
+  Future<void> _checkBackendEmbedding() async {
+    if (_currentUserUid == null) {
+      if (mounted) {
+        setState(() => _statusText = 'Failed to get user info');
+      }
+      return;
+    }
+
+    setState(() => _statusText = 'Checking face registration...');
+
+    try {
+      // Get user info from backend to check if face is registered
+      final userInfo = await ApiClient.I.me();
+      final faceData = userInfo['user']?['face'] as Map<String, dynamic>?;
+
+      if (faceData != null && faceData['embedding'] != null) {
+        // User has face registered on backend
+        final embeddingList = faceData['embedding'] as List<dynamic>?;
+        if (embeddingList != null && embeddingList.isNotEmpty) {
+          await _initCamera();
+          if (mounted && _cameraController?.value.isInitialized == true) {
+            setState(() {
+              _initState = _InitState.ready;
+              _statusText = 'Ready to scan face';
+            });
+            _startStream();
+          } else if (mounted) {
+            setState(() => _statusText = 'Camera failed to initialize.');
+          }
+          return;
+        }
+      }
+
+      // No face registered on backend
       if (mounted) {
         setState(() => _initState = _InitState.needsEnrollment);
         _showEnrollmentDialog();
       }
-    } else {
-      await _initCamera();
-      if (mounted && _cameraController?.value.isInitialized == true) {
-        setState(() {
-          _initState = _InitState.ready;
-          _statusText = 'Ready to scan face';
-        });
-        _startStream();
-      } else if (mounted) {
-        setState(() => _statusText = 'Camera failed to initialize.');
+    } catch (e) {
+      debugPrint('Failed to check backend embedding: $e');
+      if (mounted) {
+        setState(() => _statusText = 'Failed to check registration');
       }
     }
   }
@@ -84,22 +126,49 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Registration Required'),
+        title: const Text('Face Registration Required'),
         content: const Text(
-            'No face embedding is present. You have to register first.'),
+            'You need to register your face to attend sessions. This is a one-time setup that will allow you to attend any session.'),
         actions: [
           TextButton(
-            child: const Text('OK'),
+            child: const Text('Cancel'),
             onPressed: () {
               Navigator.of(context).pop();
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (c) => const DashboardPage()),
-              );
+              context.go('/student/dashboard');
+            },
+          ),
+          TextButton(
+            child: const Text('Register Face'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _startFaceRegistration();
             },
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _startFaceRegistration() async {
+    setState(() => _statusText = 'Starting face registration...');
+
+    try {
+      await _initCamera();
+      if (mounted && _cameraController?.value.isInitialized == true) {
+        setState(() {
+          _initState = _InitState.ready;
+          _statusText = 'Look at the camera to register your face';
+        });
+        _startRegistrationStream();
+      } else if (mounted) {
+        setState(() => _statusText = 'Camera failed to initialize.');
+      }
+    } catch (e) {
+      debugPrint('Failed to start registration: $e');
+      if (mounted) {
+        setState(() => _statusText = 'Registration failed to start');
+      }
+    }
   }
 
   Future<void> _initCamera() async {
@@ -155,6 +224,39 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
     });
   }
 
+  void _startRegistrationStream() {
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized ||
+        _cameraController!.value.isStreamingImages) return;
+
+    _cameraController!.startImageStream((CameraImage cameraImage) async {
+      if (_isProcessing) return;
+      _isProcessing = true;
+
+      final inputImage = _cameraImageToInputImage(cameraImage);
+      if (inputImage != null) {
+        try {
+          final faces = await _faceDetector!.processImage(inputImage);
+          if (mounted) setState(() => _faces = faces);
+
+          if (faces.isNotEmpty) {
+            // stop stream temporarily, process first face for registration
+            await _cameraController?.stopImageStream();
+            await _processFaceRegistration(cameraImage, faces.first);
+          } else {
+            if (mounted)
+              setState(() =>
+                  _statusText = 'Look directly at the camera to register.');
+          }
+        } catch (e, st) {
+          debugPrint('Face detection error: $e\n$st');
+        }
+      }
+
+      _isProcessing = false;
+    });
+  }
+
   Future<void> _processDetectedFaceFromCameraImage(
       CameraImage cameraImage, Face face) async {
     if (!mounted) return;
@@ -191,18 +293,36 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       }
 
       final probe = _faceService.getEmbeddingFromImage(faceCrop);
-      final stored = await _faceService.loadEmbedding();
 
       String newStatus;
       double? sim;
-      bool verified = false;
+      bool localVerified = false;
 
-      if (stored != null) {
-        sim = _faceService.cosineSimilarity(probe, stored);
-        verified = sim >= similarityThreshold;
-        newStatus = verified ? 'Verified' : 'Verification Failed';
-      } else {
-        newStatus = 'No stored embedding found.';
+      // Fetch embedding from backend for comparison
+      try {
+        final userInfo = await ApiClient.I.me();
+        final faceData = userInfo['user']?['face'] as Map<String, dynamic>?;
+
+        if (faceData != null && faceData['embedding'] != null) {
+          final embeddingList = faceData['embedding'] as List<dynamic>?;
+          if (embeddingList != null && embeddingList.isNotEmpty) {
+            final storedEmbedding = Float32List.fromList(
+                embeddingList.map((e) => (e as num).toDouble()).toList());
+
+            sim = _faceService.cosineSimilarity(probe, storedEmbedding);
+            localVerified = sim >= similarityThreshold;
+            newStatus = localVerified
+                ? 'Local verification successful'
+                : 'Local verification failed';
+          } else {
+            newStatus = 'No embedding found on server.';
+          }
+        } else {
+          newStatus = 'No face registered on server.';
+        }
+      } catch (e) {
+        debugPrint('Failed to fetch embedding from backend: $e');
+        newStatus = 'Failed to fetch embedding from server.';
       }
 
       if (mounted) {
@@ -212,25 +332,128 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
         });
       }
 
-      if (verified && mounted) {
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('Verification Successful'),
-            content: const Text('Your face has been verified.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-        if (!mounted) return;
-        context.go('/student/dashboard');
-        shouldRestartStream = false;
-        return;
+      // If local verification passes, proceed to server verification
+      if (localVerified && mounted) {
+        setState(() => _statusText = 'Verifying with server...');
+
+        try {
+          // Send embedding to server for verification
+          final serverResult = await ApiClient.I.verifyFace(
+            uid: _currentUserUid ?? '',
+            embedding: probe.toList(),
+          );
+
+          if (mounted) {
+            final serverMatch = serverResult['match'] as bool? ?? false;
+            final serverScore = serverResult['score'] as double? ?? 0.0;
+
+            if (serverMatch) {
+              // If we have a QR string, parse it into sessionId and rotating token
+              if (widget.qrToken != null && _currentUserUid != null) {
+                setState(() => _statusText = 'Marking attendance...');
+
+                try {
+                  String raw = widget.qrToken!;
+                  String sessionId = '';
+                  String rotating = '';
+                  final parts = raw.split(':');
+                  if (parts.length >= 2) {
+                    sessionId = parts.first;
+                    rotating = parts.sublist(1).join(':');
+                  } else {
+                    // fallback legacy format (single token)
+                    rotating = raw;
+                  }
+                  final checkinResult = await ApiClient.I.checkin(
+                    sessionId: sessionId,
+                    qrToken: rotating,
+                    studentUid: _currentUserUid!,
+                    embedding: probe.toList(),
+                  );
+
+                  if (mounted) {
+                    final verified =
+                        checkinResult['verified'] as bool? ?? false;
+
+                    // Show success popup
+                    await showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Attendance Marked!'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle,
+                                color: Colors.green, size: 48),
+                            const SizedBox(height: 16),
+                            Text(verified
+                                ? 'Your attendance has been successfully marked.'
+                                : 'Attendance recorded but not verified.'),
+                            const SizedBox(height: 8),
+                            Text(
+                                'Server verification score: ${(serverScore * 100).toStringAsFixed(1)}%'),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  debugPrint('Checkin error: $e');
+                  if (mounted) {
+                    setState(() => _statusText = 'Failed to mark attendance');
+                  }
+                }
+              } else {
+                // No QR token, just show verification success
+                await showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Verification Successful!'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle,
+                            color: Colors.green, size: 48),
+                        const SizedBox(height: 16),
+                        const Text('Face verification successful.'),
+                        const SizedBox(height: 8),
+                        Text(
+                            'Server verification score: ${(serverScore * 100).toStringAsFixed(1)}%'),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              // Navigate back to dashboard
+              if (!mounted) return;
+              context.go('/student/dashboard');
+              shouldRestartStream = false;
+              return;
+            } else {
+              setState(() => _statusText = 'Server verification failed');
+            }
+          }
+        } catch (e) {
+          debugPrint('Server verification error: $e');
+          if (mounted) {
+            setState(() => _statusText = 'Server verification error');
+          }
+        }
       }
     } catch (e, st) {
       debugPrint('Error processing face: $e\n$st');
@@ -240,6 +463,112 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
       if (shouldRestartStream) {
         await _safeRestartStream();
       }
+    }
+  }
+
+  Future<void> _processFaceRegistration(
+      CameraImage cameraImage, Face face) async {
+    if (!mounted) return;
+    bool shouldRestartStream = true;
+
+    try {
+      setState(() => _statusText = 'Processing face for registration...');
+      final img.Image? fullImage =
+          await _convertCameraImageToImage(cameraImage);
+
+      if (fullImage == null) {
+        setState(() => _statusText = 'Frame conversion failed. Retrying...');
+        return;
+      }
+
+      // Crop the face using bounding box
+      final rect = face.boundingBox;
+      final int left = rect.left.round().clamp(0, fullImage.width - 1);
+      final int top = rect.top.round().clamp(0, fullImage.height - 1);
+      final int width = rect.width.round().clamp(1, fullImage.width - left);
+      final int height = rect.height.round().clamp(1, fullImage.height - top);
+
+      img.Image faceCrop = img.copyCrop(fullImage,
+          x: left, y: top, width: width, height: height);
+
+      // Align face using eyes if available
+      final leftEye = face.landmarks[FaceLandmarkType.leftEye];
+      final rightEye = face.landmarks[FaceLandmarkType.rightEye];
+      if (leftEye != null && rightEye != null) {
+        final dx = rightEye.position.x - leftEye.position.x;
+        final dy = rightEye.position.y - leftEye.position.y;
+        final angle = math.atan2(dy, dx) * (180 / math.pi);
+        faceCrop = img.copyRotate(faceCrop, angle: -angle.round());
+      }
+
+      // Generate embedding from the face
+      final embedding = _faceService.getEmbeddingFromImage(faceCrop);
+
+      // Register face on backend
+      setState(() => _statusText = 'Registering face on server...');
+
+      try {
+        await ApiClient.I.registerFace(
+          uid: _currentUserUid ?? '',
+          embedding: embedding.toList(),
+        );
+
+        // Show success dialog
+        if (mounted) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              title: const Text('Registration Successful!'),
+              content: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green, size: 48),
+                  SizedBox(height: 16),
+                  Text(
+                      'Your face has been successfully registered. You can now attend any session.'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+
+          // Navigate back to dashboard
+          if (!mounted) return;
+          context.go('/student/dashboard');
+          shouldRestartStream = false;
+          return;
+        }
+      } catch (e) {
+        debugPrint('Face registration error: $e');
+        if (mounted) {
+          setState(
+              () => _statusText = 'Registration failed. Please try again.');
+        }
+      }
+    } catch (e, st) {
+      debugPrint('Error processing face registration: $e\n$st');
+      if (mounted)
+        setState(() => _statusText = 'Registration error. Retrying...');
+    } finally {
+      if (shouldRestartStream) {
+        await _safeRestartRegistrationStream();
+      }
+    }
+  }
+
+  Future<void> _safeRestartRegistrationStream() async {
+    if (!mounted) return;
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (mounted &&
+        _cameraController != null &&
+        !_cameraController!.value.isStreamingImages) {
+      _startRegistrationStream();
     }
   }
 
@@ -267,7 +596,29 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Face Verification')),
+      backgroundColor: const Color(0xFF121212), // Dark mode background
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0f1d3a),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Row(
+          children: [
+            Image.asset(
+              "assets/images/IIITNR_Logo.png",
+              height: 24,
+              width: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Face Verification',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _buildBody(),
       bottomNavigationBar: Container(
         color: _similarity == null
@@ -322,7 +673,7 @@ class _FaceDetectionPageState extends State<FaceDetectionPage> {
         ),
       );
     }
-    
+
     return const Center(child: CircularProgressIndicator());
   }
 

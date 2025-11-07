@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:frontend/api/api_client.dart';
+import 'package:frontend/api/realtime.dart';
 
 class CreatePassPage extends StatefulWidget {
   const CreatePassPage({super.key});
@@ -30,6 +32,8 @@ class _CreatePassPageState extends State<CreatePassPage> {
 
   int _validityMinutes = 15; // default 15 min
   bool _isSubmitting = false;
+  StreamSubscription<QrTick>? _sub;
+  String? _currentQrString; // "{sessionId}:{token}"
 
   @override
   void initState() {
@@ -44,6 +48,11 @@ class _CreatePassPageState extends State<CreatePassPage> {
   //   _purposeController.dispose();
   //   super.dispose();
   // }
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
 
   void _pickValidityMinutes() {
     showModalBottomSheet(
@@ -99,9 +108,24 @@ class _CreatePassPageState extends State<CreatePassPage> {
         title: _selectedSession,
         durationMinutes: _validityMinutes,
       );
+      final sessionId = res['sessionId'] as String?;
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
+      });
+
+      if (sessionId == null || sessionId.isEmpty) {
+        throw Exception('No sessionId returned');
+      }
+
+      // Start listening for rotating QR tokens
+      _sub?.cancel();
+      _sub = RealtimeService.I
+          .subscribeQrTicks(sessionId, asProfessor: true)
+          .listen((tick) {
+        setState(() {
+          _currentQrString = tick.toQrString();
+        });
       });
 
       showDialog(
@@ -120,14 +144,23 @@ class _CreatePassPageState extends State<CreatePassPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min, // This is still important
                 children: [
-                  QrImageView(
-                    data: (res['qrToken'] as String?) ?? '',
-                    version: QrVersions.auto,
-                    size: 200,
-                    backgroundColor: Colors.white,
-                  ),
+                  if (_currentQrString == null)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(),
+                    )
+                  else
+                    QrImageView(
+                      data: _currentQrString!,
+                      version: QrVersions.auto,
+                      size: 220,
+                      backgroundColor: Colors.white,
+                    ),
                   const SizedBox(height: 12),
-                  SelectableText("Token: ${res['qrToken']}",
+                  SelectableText(
+                      _currentQrString == null
+                          ? 'Waiting for QR...'
+                          : 'Payload: $_currentQrString',
                       style: const TextStyle(color: Colors.white)),
                   const SizedBox(height: 12),
                   Text("Valid for $_validityMinutes minutes",

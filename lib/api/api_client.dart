@@ -145,10 +145,12 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> checkin(
-      {required String qrToken,
+      {required String sessionId,
+      required String qrToken,
       required String studentUid,
       List<double>? embedding}) async {
     final res = await _dio.post(ApiConfig.sessionsCheckin, data: {
+      'sessionId': sessionId,
       'qrToken': qrToken,
       'studentUid': studentUid,
       if (embedding != null) 'embedding': embedding,
@@ -180,4 +182,14 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  // Professor Sessions
+  Future<Map<String, dynamic>> getProfessorSessions() async {
+    final res = await _dio.get(ApiConfig.professorSessions);
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getSessionAttendance(String sessionId) async {
+    final res = await _dio.get(ApiConfig.professorSessionAttendance(sessionId));
+    return res.data as Map<String, dynamic>;
+  }
 }

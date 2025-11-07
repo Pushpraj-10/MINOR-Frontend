@@ -6,6 +6,8 @@ import 'package:frontend/screens/auth/register_page.dart';
 import 'package:frontend/screens/professor/dashboard.dart';
 import 'package:frontend/screens/student/dashboard.dart';
 import 'package:frontend/screens/professor/session/sessionCreation.dart';
+import 'package:frontend/screens/professor/sessions/sessions_list_page.dart';
+import 'package:frontend/screens/professor/sessions/session_attendance_page.dart';
 import 'package:frontend/screens/student/session/attendance_scan_page.dart';
 import 'package:frontend/screens/student/session/face_detection_page.dart';
 
@@ -52,6 +54,19 @@ final GoRouter router = GoRouter(
       path: '/student/attendance/face_verification',
       builder: (BuildContext context, GoRouterState state) {
         return const FaceDetectionPage();
+      },
+    ),
+    GoRoute(
+      path: '/professor/sessions',
+      builder: (BuildContext context, GoRouterState state) {
+        return const ProfessorSessionsListPage();
+      },
+    ),
+    GoRoute(
+      path: '/professor/sessions/:sessionId/students',
+      builder: (BuildContext context, GoRouterState state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        return SessionAttendancePage(sessionId: sessionId);
       },
     ),
   ],
