@@ -1,11 +1,9 @@
 class ApiConfig {
   ApiConfig._();
 
-  // Change to match your backend origin
-  static const String baseUrl = String.fromEnvironment(
-    'https://minor-backend-production.up.railway.app/api',
-    defaultValue: 'https://minor-backend-production.up.railway.app/api',
-  );
+  // Backend base URL (must include /api)
+  // For Render:
+  static const String baseUrl = 'https://minor-backend-y0ge.onrender.com/api';
 
   // Auth
   static const String authLogin = '/auth/login';
