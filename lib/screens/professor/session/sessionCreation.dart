@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:dio/dio.dart' show DioException;
 import 'package:frontend/api/api_client.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/api/realtime.dart';
 
 class CreatePassPage extends StatefulWidget {
@@ -14,43 +15,28 @@ class CreatePassPage extends StatefulWidget {
 
 class _CreatePassPageState extends State<CreatePassPage> {
   final _formKey = GlobalKey<FormState>();
-
-  // State for 'Session' dropdown
   final List<String> _sessions = ['CSE 2024', 'DSAI 2024', 'ECE 2024'];
-  String? _selectedSession;
-
-  // --- CHANGES START HERE ---
-
-  // 1. Define the list for the 'Purpose' dropdown
   final List<String> _purposes = ['Lab', 'Theory', 'In', 'Out'];
-  // 2. Add a state variable to hold the selected purpose
+  String? _selectedSession;
   String? _selectedPurpose;
-  // 3. The TextEditingController is no longer needed for 'purpose'
-  // final TextEditingController _purposeController = TextEditingController();
 
-  // --- CHANGES END HERE ---
-
-  int _validityMinutes = 15; // default 15 min
+  int _validityMinutes = 15;
   bool _isSubmitting = false;
   StreamSubscription<QrTick>? _sub;
-  String? _currentQrString; // "{sessionId}:{token}"
+  // Notifier used so dialog can update independently of parent rebuilds
+  final ValueNotifier<String?> _qrNotifier = ValueNotifier<String?>(null);
 
   @override
   void initState() {
     super.initState();
     _selectedSession = _sessions.first;
-    _selectedPurpose = _purposes.first; // Initialize the selected purpose
+    _selectedPurpose = _purposes.first;
   }
 
-  // The dispose for the controller is no longer needed
-  // @override
-  // void dispose() {
-  //   _purposeController.dispose();
-  //   super.dispose();
-  // }
   @override
   void dispose() {
     _sub?.cancel();
+    _qrNotifier.dispose();
     super.dispose();
   }
 
@@ -71,7 +57,7 @@ class _CreatePassPageState extends State<CreatePassPage> {
                   backgroundColor: const Color(0xFF1E1E1E),
                   itemExtent: 40,
                   scrollController: FixedExtentScrollController(
-                      initialItem: _validityMinutes),
+                      initialItem: _validityMinutes - 1),
                   onSelectedItemChanged: (val) {
                     setState(() {
                       _validityMinutes = val + 1;
@@ -98,7 +84,6 @@ class _CreatePassPageState extends State<CreatePassPage> {
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _isSubmitting = true;
     });
@@ -113,80 +98,96 @@ class _CreatePassPageState extends State<CreatePassPage> {
       setState(() {
         _isSubmitting = false;
       });
+      if (sessionId == null || sessionId.isEmpty)
+        throw Exception('No sessionId');
 
-      if (sessionId == null || sessionId.isEmpty) {
-        throw Exception('No sessionId returned');
-      }
-
-      // Start listening for rotating QR tokens
       _sub?.cancel();
       _sub = RealtimeService.I
           .subscribeQrTicks(sessionId, asProfessor: true)
           .listen((tick) {
-        setState(() {
-          _currentQrString = tick.toQrString();
-        });
+        final s = tick.toQrString();
+        _qrNotifier.value = s;
+        // ignore: avoid_print
+        print('QR updated: $s');
       });
 
+      if (!mounted) return;
       showDialog(
         context: context,
         builder: (context) {
           return AlertDialog(
-            title:
-                const Text("Session QR", style: TextStyle(color: Colors.white)),
+            title: const Text('Session Token',
+                style: TextStyle(color: Colors.white)),
             backgroundColor: const Color(0xFF121212),
-
-            // --- FIX START ---
-            // Wrap the Column in a SizedBox to give it a finite width,
-            // which resolves the LayoutBuilder issue with QrImageView.
             content: SizedBox(
               width: double.maxFinite,
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // This is still important
-                children: [
-                  if (_currentQrString == null)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: CircularProgressIndicator(),
-                    )
-                  else
-                    QrImageView(
-                      data: _currentQrString!,
-                      version: QrVersions.auto,
-                      size: 220,
-                      backgroundColor: Colors.white,
-                    ),
-                  const SizedBox(height: 12),
-                  SelectableText(
-                      _currentQrString == null
-                          ? 'Waiting for QR...'
-                          : 'Payload: $_currentQrString',
-                      style: const TextStyle(color: Colors.white)),
-                  const SizedBox(height: 12),
-                  Text("Valid for $_validityMinutes minutes",
-                      style: const TextStyle(color: Colors.white70)),
-                ],
+              child: ValueListenableBuilder<String?>(
+                valueListenable: _qrNotifier,
+                builder: (context, value, child) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (value == null)
+                        const Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: CircularProgressIndicator(),
+                        )
+                      else
+                        Container(
+                          width: 240,
+                          height: 240,
+                          color: Colors.white,
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: 220,
+                            height: 220,
+                            child: CustomPaint(
+                              painter: QrPainter(
+                                data: value,
+                                version: QrVersions.auto,
+                                gapless: true,
+                                color: Colors.black,
+                                emptyColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Text('Valid for $_validityMinutes minutes',
+                          style: const TextStyle(color: Colors.white70)),
+                    ],
+                  );
+                },
               ),
             ),
-            // --- FIX END ---
-
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close')),
             ],
           );
         },
       );
-    } catch (e) {
+    } catch (e, st) {
+      // Log full error for debugging
+      // ignore: avoid_print
+      print('createSession error: $e');
+      // ignore: avoid_print
+      print(st);
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to create session')),
-      );
+      String msg = 'Failed to create session';
+      if (e is DioException) {
+        try {
+          final resp = e.response?.data;
+          if (resp != null) msg = resp.toString();
+        } catch (_) {}
+      } else {
+        msg = e.toString();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -195,7 +196,7 @@ class _CreatePassPageState extends State<CreatePassPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF0f1d3a),
-        title: const Text("Create a session",
+        title: const Text('Create a session',
             style: TextStyle(color: Colors.white)),
       ),
       backgroundColor: const Color(0xFF121212),
@@ -206,9 +207,7 @@ class _CreatePassPageState extends State<CreatePassPage> {
           child: Column(
             children: [
               DropdownButtonFormField<String>(
-                // --- FIX ---
                 isExpanded: true,
-                // -----------
                 value: _selectedSession,
                 items: _sessions
                     .map((s) => DropdownMenuItem(value: s, child: Text(s)))
@@ -227,9 +226,7 @@ class _CreatePassPageState extends State<CreatePassPage> {
               ),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
-                // --- FIX ---
                 isExpanded: true,
-                // -----------
                 value: _selectedPurpose,
                 items: _purposes
                     .map((p) => DropdownMenuItem(value: p, child: Text(p)))
@@ -254,23 +251,18 @@ class _CreatePassPageState extends State<CreatePassPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2A282C),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                      color: const Color(0xFF2A282C),
+                      borderRadius: BorderRadius.circular(12)),
                   child: Column(
                     children: [
-                      Text(
-                        "$_validityMinutes minutes",
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold),
-                      ),
+                      Text('$_validityMinutes minutes',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold)),
                       const SizedBox(height: 6),
-                      const Text(
-                        "QR Validity Duration",
-                        style: TextStyle(color: Colors.white70),
-                      ),
+                      const Text('QR Validity Duration',
+                          style: TextStyle(color: Colors.white70)),
                     ],
                   ),
                 ),
@@ -281,10 +273,9 @@ class _CreatePassPageState extends State<CreatePassPage> {
                 height: 50,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFDCC8FF),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30)),
-                  ),
+                      backgroundColor: const Color(0xFFDCC8FF),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30))),
                   onPressed: _isSubmitting ? null : _submitForm,
                   child: _isSubmitting
                       ? const CircularProgressIndicator(color: Colors.white)
@@ -299,3 +290,6 @@ class _CreatePassPageState extends State<CreatePassPage> {
     );
   }
 }
+
+// QR rendering is handled by `qr_flutter`'s QrImage which accepts a QrCode object.
+// We no longer use a local painter.
