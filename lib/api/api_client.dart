@@ -148,32 +148,66 @@ class ApiClient {
       {required String sessionId,
       required String qrToken,
       required String studentUid,
-      List<double>? embedding}) async {
-    final res = await _dio.post(ApiConfig.sessionsCheckin, data: {
+      List<double>? embedding,
+      // Biometric optional fields
+      String? method,
+      String? challenge,
+      String? signature}) async {
+    final Map<String, dynamic> body = {
       'sessionId': sessionId,
       'qrToken': qrToken,
       'studentUid': studentUid,
-      if (embedding != null) 'embedding': embedding,
-    });
+    };
+    if (embedding != null) body['embedding'] = embedding;
+    if (method != null) body['method'] = method;
+    if (challenge != null) body['challenge'] = challenge;
+    if (signature != null) body['signature'] = signature;
+
+    final res = await _dio.post(ApiConfig.sessionsCheckin, data: body);
     return res.data as Map<String, dynamic>;
   }
 
-  // Face
-  Future<void> registerFace(
-      {required String uid, required List<double> embedding}) async {
-    await _dio.post(ApiConfig.faceRegister, data: {
-      'uid': uid,
-      'embedding': embedding,
-    });
+  // Biometrics (hardware-backed)
+  Future<void> requestBiometricsEnable() async {
+    await _dio.post(ApiConfig.biometricsRequestEnable);
   }
 
-  Future<Map<String, dynamic>> verifyFace(
-      {required String uid, required List<double> embedding}) async {
-    final res = await _dio.post(ApiConfig.faceVerify, data: {
-      'uid': uid,
-      'embedding': embedding,
-    });
+  Future<Map<String, dynamic>> getBiometricsStatus() async {
+    final res = await _dio.get(ApiConfig.biometricsStatus);
     return res.data as Map<String, dynamic>;
+  }
+
+  Future<void> registerBiometricKey({required String publicKeyPem}) async {
+    await _dio.post(ApiConfig.biometricsRegisterKey,
+        data: {'publicKeyPem': publicKeyPem});
+  }
+
+  Future<Map<String, dynamic>> getBiometricChallenge() async {
+    final res = await _dio.get(ApiConfig.biometricsChallenge);
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> validateBiometric(
+      {required String challenge, required String signature}) async {
+    final res = await _dio.post(ApiConfig.biometricsValidate,
+        data: {'challenge': challenge, 'signature': signature});
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<void> revokeBiometric({String? reason}) async {
+    await _dio.post(ApiConfig.biometricsRevoke,
+        data: {if (reason != null) 'reason': reason});
+  }
+
+  // Admin
+  Future<void> adminApproveBiometric({required String userId}) async {
+    await _dio.post(ApiConfig.biometricsAdminApprove, data: {'userId': userId});
+  }
+
+  Future<void> adminRevokeBiometric(
+      {required String userId, String? reason}) async {
+    await _dio.post(ApiConfig.biometricsAdminRevoke,
+        data: {'userId': userId, if (reason != null) 'reason': reason});
   }
 
   // Attendance

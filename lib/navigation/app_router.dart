@@ -9,7 +9,6 @@ import 'package:frontend/screens/professor/session/sessionCreation.dart';
 import 'package:frontend/screens/professor/sessions/sessions_list_page.dart';
 import 'package:frontend/screens/professor/sessions/session_attendance_page.dart';
 import 'package:frontend/screens/student/session/attendance_scan_page.dart';
-import 'package:frontend/screens/student/session/face_detection_page.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -50,12 +49,7 @@ final GoRouter router = GoRouter(
         return const AttendanceScanPage();
       },
     ),
-    GoRoute(
-      path: '/student/attendance/face_verification',
-      builder: (BuildContext context, GoRouterState state) {
-        return const FaceDetectionPage();
-      },
-    ),
+    // Face verification route removed (face-embedding flow archived)
     GoRoute(
       path: '/professor/sessions',
       builder: (BuildContext context, GoRouterState state) {

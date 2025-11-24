@@ -6,9 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'face_detection_page.dart';
-import 'face_enrollment_page.dart';
-import 'face_recognition_service.dart';
+// Legacy face-embedding pages removed. Biometric-first flow only.
+import 'package:frontend/api/api_client.dart';
 
 class AttendanceScanPage extends StatefulWidget {
   const AttendanceScanPage({Key? key}) : super(key: key);
@@ -73,28 +72,152 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
     try {
       final qrToken = await _scanSingleQrToken();
 
-      // Decide flow using stored embedding
-      final FaceRecognitionService svc = await FaceRecognitionService.create(
-        modelAsset: 'assets/models/mobile_face_net.tflite',
-      );
-      final embedding = await svc.loadEmbedding();
-      svc.dispose();
+      // Prefer biometrics when enabled on the server
+      try {
+        final status = await ApiClient.I.getBiometricsStatus();
+        if (status['status'] == 'approved') {
+          // Request a challenge
+          final challengeResp = await ApiClient.I.getBiometricChallenge();
+          final challenge = challengeResp['challenge'] as String?;
+          if (challenge == null) throw Exception('no_challenge');
 
-      if (!mounted) return;
-      if (embedding == null) {
-        // No embedding -> enroll
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FaceEnrollmentPage()),
-        );
-      } else {
-        // Embedding exists -> verify
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-              builder: (_) => FaceDetectionPage(qrToken: qrToken)),
-        );
+          // Ask user to paste a signature (manual/dev flow) and their UID
+          final Map<String, String?> result = await showDialog(
+            context: context,
+            builder: (ctx) {
+              final TextEditingController uidCtrl = TextEditingController();
+              final TextEditingController sigCtrl = TextEditingController();
+              return AlertDialog(
+                title: const Text('Biometric Check-in'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Challenge (copy to OS signing tool):'),
+                      SelectableText(challenge),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: uidCtrl,
+                        decoration:
+                            const InputDecoration(labelText: 'Your UID'),
+                      ),
+                      TextField(
+                        controller: sigCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Signature (base64)'),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                      onPressed: () =>
+                          Navigator.of(ctx).pop({'uid': null, 'sig': null}),
+                      child: const Text('Cancel')),
+                  ElevatedButton(
+                      onPressed: () => Navigator.of(ctx)
+                          .pop({'uid': uidCtrl.text, 'sig': sigCtrl.text}),
+                      child: const Text('Submit')),
+                ],
+              );
+            },
+          ) as Map<String, String?>;
+
+          final studentUid = result['uid'];
+          final signature = result['sig'];
+          if (studentUid != null &&
+              studentUid.isNotEmpty &&
+              signature != null &&
+              signature.isNotEmpty) {
+            // Send biometric checkin (session lookup allowed by server using qrToken)
+            final resp = await ApiClient.I.checkin(
+                sessionId: '',
+                qrToken: qrToken,
+                studentUid: studentUid,
+                method: 'biometric',
+                challenge: challenge,
+                signature: signature);
+            // A simple success popup
+            await showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                        title: const Text('Check-in Result'),
+                        content: Text(resp.toString()),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              child: const Text('OK'))
+                        ]));
+            if (!mounted) return;
+            setState(() {
+              _scanning = false;
+              _status = 'Align the QR code in the frame';
+            });
+            return;
+          }
+        }
+      } catch (e) {
+        // If biometrics flow fails/disabled, fall back to embedding flow below
+        debugPrint('Biometrics flow skipped: $e');
       }
 
-      // Checkin is now handled by the face detection page
+      // Embedding-based fallback removed. Offer a QR-only check-in via UID entry.
+      final String? fallbackUid = await showDialog<String?>(
+        context: context,
+        builder: (ctx) {
+          final TextEditingController uidCtrl = TextEditingController();
+          return AlertDialog(
+            title: const Text('Biometric unavailable'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                      'Biometric/face-embedding verification is not available. To proceed with QR-only check-in, enter your UID below or contact your administrator.'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: uidCtrl,
+                    decoration: const InputDecoration(labelText: 'Your UID'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(uidCtrl.text),
+                  child: const Text('Submit')),
+            ],
+          );
+        },
+      );
+
+      if (fallbackUid != null && fallbackUid.isNotEmpty) {
+        final resp = await ApiClient.I.checkin(
+            sessionId: '',
+            qrToken: qrToken,
+            studentUid: fallbackUid,
+            method: 'qr');
+        await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+                    title: const Text('Check-in Result'),
+                    content: Text(resp.toString()),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('OK'))
+                    ]));
+        if (!mounted) return;
+        setState(() {
+          _scanning = false;
+          _status = 'Align the QR code in the frame';
+        });
+        return;
+      }
 
       if (!mounted) return;
       setState(() {

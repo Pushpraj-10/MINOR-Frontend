@@ -21,10 +21,21 @@ class ApiConfig {
       '/sessions/professor/$sessionId/attendance';
 
   // Face
-  static const String faceRegister = '/face/register';
-  static const String faceVerify = '/face/verify';
+  // Face (deprecated) - replaced by biometrics module
+  // static const String faceRegister = '/face/register';
+  // static const String faceVerify = '/face/verify';
 
-  // Attendance
+  // Biometrics (hardware-backed, admin-gated)
+  static const String biometricsRequestEnable = '/biometrics/request-enable';
+  static const String biometricsStatus = '/biometrics/status';
+  static const String biometricsRegisterKey = '/biometrics/register-key';
+  static const String biometricsChallenge = '/biometrics/challenge';
+  static const String biometricsValidate = '/biometrics/validate';
+  static const String biometricsRevoke = '/biometrics/revoke';
+  static const String biometricsAdminApprove = '/biometrics/admin/approve';
+  static const String biometricsAdminRevoke = '/biometrics/admin/revoke';
+
+  // Attendance (migrated into sessions)
   static String attendanceBySession(String sessionId) =>
-      '/attendance/$sessionId';
+      '/sessions/$sessionId/attendance';
 }
