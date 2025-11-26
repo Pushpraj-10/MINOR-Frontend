@@ -28,6 +28,8 @@ class ApiConfig {
   // Biometrics (hardware-backed, admin-gated)
   static const String biometricsRequestEnable = '/biometrics/request-enable';
   static const String biometricsStatus = '/biometrics/status';
+  static const String biometricsPublicKey = '/biometrics/public-key';
+  static const String biometricsCheckKey = '/biometrics/check-key';
   static const String biometricsRegisterKey = '/biometrics/register-key';
   static const String biometricsChallenge = '/biometrics/challenge';
   static const String biometricsValidate = '/biometrics/validate';
@@ -38,4 +40,10 @@ class ApiConfig {
   // Attendance (migrated into sessions)
   static String attendanceBySession(String sessionId) =>
       '/sessions/$sessionId/attendance';
+  // Attendance biometric endpoints
+  static const String attendanceCheckKey = '/attendance/check-key';
+  static const String attendanceRegisterKey = '/attendance/register-key';
+  static const String attendanceVerifyChallenge =
+      '/attendance/verify-challenge';
+  static const String attendanceMarkPresent = '/attendance/mark-present';
 }

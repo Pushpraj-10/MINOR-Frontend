@@ -27,6 +27,8 @@ dependencies:
   google_mlkit_commons: ^0.11.0
   google_ml_kit: ^0.20.0
   socket_io_client: ^2.0.3
+  local_auth: ^2.1.0
+  crypto: ^3.0.2
 
 dev_dependencies:
   flutter_test:

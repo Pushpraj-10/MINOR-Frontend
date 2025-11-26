@@ -177,13 +177,71 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
-  Future<void> registerBiometricKey({required String publicKeyPem}) async {
-    await _dio.post(ApiConfig.biometricsRegisterKey,
+  Future<Map<String, dynamic>> getBiometricPublicKey() async {
+    final res = await _dio.get(ApiConfig.biometricsPublicKey);
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> checkBiometricKey(
+      {required String publicKeyPem}) async {
+    final res = await _dio.post(ApiConfig.biometricsCheckKey,
         data: {'publicKeyPem': publicKeyPem});
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<void> registerBiometricKey({required String publicKeyPem}) async {
+    // Temporary debug logging to trace registration requests
+    print(
+        'ApiClient.registerBiometricKey: sending pemLength=${publicKeyPem.length}');
+    try {
+      final res = await _dio.post(ApiConfig.biometricsRegisterKey,
+          data: {'publicKeyPem': publicKeyPem});
+      print(
+          'ApiClient.registerBiometricKey: success status=${res.statusCode} data=${res.data}');
+    } catch (err) {
+      print('ApiClient.registerBiometricKey: error $err');
+      try {
+        if (err is DioException) {
+          print(
+              'ApiClient.registerBiometricKey: dio response status=${err.response?.statusCode} data=${err.response?.data}');
+        }
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> getBiometricChallenge() async {
     final res = await _dio.get(ApiConfig.biometricsChallenge);
+    return res.data as Map<String, dynamic>;
+  }
+
+  // Attendance biometric endpoints
+  Future<Map<String, dynamic>> attendanceCheckKey() async {
+    final res = await _dio.get(ApiConfig.attendanceCheckKey);
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> attendanceRegisterKey(
+      {required String publicKeyPem}) async {
+    final res = await _dio.post(ApiConfig.attendanceRegisterKey,
+        data: {'publicKeyPem': publicKeyPem});
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> attendanceVerifyChallenge(
+      {required String challenge, required String signature}) async {
+    final res = await _dio.post(ApiConfig.attendanceVerifyChallenge,
+        data: {'challenge': challenge, 'signature': signature});
+    return res.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> attendanceMarkPresent(
+      {String? studentUid, String? qrToken, String? sessionId}) async {
+    final body = <String, dynamic>{};
+    if (studentUid != null) body['studentUid'] = studentUid;
+    if (qrToken != null) body['qrToken'] = qrToken;
+    if (sessionId != null) body['sessionId'] = sessionId;
+    final res = await _dio.post(ApiConfig.attendanceMarkPresent, data: body);
     return res.data as Map<String, dynamic>;
   }
 
