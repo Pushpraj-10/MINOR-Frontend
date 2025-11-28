@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
@@ -19,6 +21,7 @@ class ApiClient {
           ),
         ) {
     _dio.interceptors.add(CookieManager(_cookieJar));
+    // Auth + refresh interceptor
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
         final token = _accessToken;
@@ -38,6 +41,60 @@ class ApiClient {
           }
         }
         handler.next(e);
+      },
+    ));
+
+    // Logging interceptor: logs every request, response and error for debugging
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        try {
+          final authPresent = options.headers['Authorization'] != null;
+          String bodyPreview = '';
+          if (options.data != null) {
+            final String encoded = options.data is String
+                ? options.data as String
+                : jsonEncode(options.data);
+            bodyPreview = encoded.substring(0, encoded.length.clamp(0, 200));
+          }
+          debugPrint(
+              'ApiClient.request → ${options.method} ${options.path} authPresent=${authPresent} bodyPreview=${bodyPreview}');
+        } catch (e) {
+          debugPrint('ApiClient.request → (logging failed): $e');
+        }
+        handler.next(options);
+      },
+      onResponse: (response, handler) async {
+        try {
+          final status = response.statusCode;
+          final data = response.data;
+          String dataPreview = '';
+          if (data != null) {
+            final String encoded = data is String ? data : jsonEncode(data);
+            dataPreview = encoded.substring(0, encoded.length.clamp(0, 400));
+          }
+          debugPrint(
+              'ApiClient.response ← ${response.requestOptions.method} ${response.requestOptions.path} status=$status dataPreview=${dataPreview}');
+        } catch (e) {
+          debugPrint('ApiClient.response ← (logging failed): $e');
+        }
+        handler.next(response);
+      },
+      onError: (err, handler) async {
+        try {
+          final req = err.requestOptions;
+          final status = err.response?.statusCode;
+          final data = err.response?.data;
+          String dataPreview = '';
+          if (data != null) {
+            final String encoded = data is String ? data : jsonEncode(data);
+            dataPreview = encoded.substring(0, encoded.length.clamp(0, 400));
+          }
+          debugPrint(
+              'ApiClient.error ← ${req.method} ${req.path} status=${status} dataPreview=${dataPreview}');
+        } catch (e) {
+          debugPrint('ApiClient.error ← (logging failed): $e');
+        }
+        handler.next(err);
       },
     ));
   }
@@ -215,23 +272,22 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
-  // Attendance biometric endpoints
-  Future<Map<String, dynamic>> attendanceCheckKey() async {
-    final res = await _dio.get(ApiConfig.attendanceCheckKey);
-    return res.data as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> attendanceRegisterKey(
-      {required String publicKeyPem}) async {
-    final res = await _dio.post(ApiConfig.attendanceRegisterKey,
-        data: {'publicKeyPem': publicKeyPem});
+  // Biometric check endpoint (combined status + challenge)
+  Future<Map<String, dynamic>> biometricCheck() async {
+    final res = await _dio.get(ApiConfig.biometricsCheck);
     return res.data as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> attendanceVerifyChallenge(
-      {required String challenge, required String signature}) async {
-    final res = await _dio.post(ApiConfig.attendanceVerifyChallenge,
-        data: {'challenge': challenge, 'signature': signature});
+      {required String challenge,
+      required String signature,
+      String? qrToken,
+      String? sessionId}) async {
+    final body = {'challenge': challenge, 'signature': signature};
+    if (qrToken != null) body['qrToken'] = qrToken;
+    if (sessionId != null) body['sessionId'] = sessionId;
+    final res =
+        await _dio.post(ApiConfig.attendanceVerifyChallenge, data: body);
     return res.data as Map<String, dynamic>;
   }
 
@@ -255,6 +311,10 @@ class ApiClient {
   Future<void> revokeBiometric({String? reason}) async {
     await _dio.post(ApiConfig.biometricsRevoke,
         data: {if (reason != null) 'reason': reason});
+  }
+
+  Future<void> deleteBiometricKey() async {
+    await _dio.delete(ApiConfig.biometricsDeleteKey);
   }
 
   // Admin

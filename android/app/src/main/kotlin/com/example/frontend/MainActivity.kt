@@ -190,8 +190,10 @@ class MainActivity: FlutterFragmentActivity() {
 				"openBiometricEnroll" -> {
 					try {
 						val enrollIntent = Intent(Settings.ACTION_BIOMETRIC_ENROLL).apply {
-							// Use string literal for the extra key to avoid AndroidX version mismatch
-							putExtra("androidx.biometric.BIOMETRIC_AUTHENTICATORS", BiometricManager.Authenticators.BIOMETRIC_STRONG)
+							putExtra(
+								Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+								BiometricManager.Authenticators.BIOMETRIC_STRONG
+							)
 						}
 						startActivity(enrollIntent)
 						result.success(true)

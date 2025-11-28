@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:local_auth/local_auth.dart';
@@ -73,22 +72,38 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           ),
         );
         if (doRegister == true) {
-          final LocalAuthentication auth = LocalAuthentication();
-          bool authenticated = false;
           try {
-            authenticated = await auth.authenticate(
-              localizedReason:
-                  'Authenticate to register this device for biometric check-in',
-              options: const AuthenticationOptions(biometricOnly: true),
-            );
+            // Use the new BiometricService for face authentication
+            final authenticated = await BiometricService.authenticateWithFace();
+            if (!authenticated) {
+              if (mounted)
+                _showPopup('Registration Cancelled',
+                    'Face authentication is required for registration.');
+              return;
+            }
           } catch (e) {
-            debugPrint(
-                'Local_auth authenticate failed during registration: $e');
-          }
-          if (!authenticated) {
-            if (mounted)
-              _showPopup('Registration Cancelled',
-                  'Biometric registration cancelled or failed.');
+            debugPrint('Face authentication failed during registration: $e');
+            if (mounted) {
+              String message = 'Face authentication failed';
+              if (e is PlatformException) {
+                switch (e.code) {
+                  case 'user_cancelled':
+                    message = 'Registration cancelled by user';
+                    break;
+                  case 'no_biometrics_enrolled':
+                    message =
+                        'Please set up face lock in device settings first';
+                    break;
+                  case 'biometric_not_available':
+                    message =
+                        'Face authentication is not available on this device';
+                    break;
+                  default:
+                    message = 'Face authentication failed: ${e.message}';
+                }
+              }
+              _showPopup('Registration Failed', message);
+            }
             return;
           }
 
@@ -162,491 +177,327 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
         return;
       }
 
-      // Do not pre-authenticate here; defer to the native signing prompt.
-      // We only need to confirm device supports biometrics.
-      try {
-        // no-op: we defer to native signing prompt later
-      } on PlatformException catch (e) {
-        final code = e.code.toString().toLowerCase();
-        if (code.contains('notenrolled') ||
-            code.contains('no_biometrics') ||
-            code.contains('no_biometric')) {
-          final setup = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Enable Biometric Authentication'),
-              content: const Text(
-                  'No biometric credential is set up on this device. Would you like to open settings to enable it?'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('Cancel')),
-                TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('Open Settings')),
-              ],
-            ),
-          );
-          if (setup == true) await openAppSettings();
-          _resetState();
-          return;
-        }
+      // Check face authentication status
+      final faceStatus = await BiometricService.getFaceStatus();
+      if (faceStatus == 'not_available') {
         if (mounted)
-          _showPopup(
-              'Authentication Error', e.message ?? 'Authentication failed');
+          _showPopup('Face Authentication Unavailable',
+              'Face authentication is not available on this device. Please ensure your device supports biometric authentication.');
         _resetState();
         return;
-      } catch (_) {
-        if (mounted)
-          _showPopup('Authentication Failed',
-              'Biometric authentication failed or was cancelled.');
+      } else if (faceStatus == 'not_enrolled') {
+        final setup = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Setup Face Authentication'),
+            content: const Text(
+                'Face authentication is not set up on this device. Would you like to open settings to enable it?'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Open Settings')),
+            ],
+          ),
+        );
+
+        if (setup == true) {
+          final opened = await BiometricService.openBiometricEnroll();
+          if (!opened) {
+            await openAppSettings();
+          }
+        }
         _resetState();
         return;
       }
 
       // skip upfront authentication; signing will prompt when needed
 
-      // Now call server to determine biometric enrollment status for the user/device
+      // Use atomic biometricCheck endpoint to get status + challenge in one call
       try {
-        debugPrint('Authenticated via OS biometric — checking server status');
-        final status = await ApiClient.I.getBiometricsStatus();
-        final String s = status['status'] as String? ?? 'unknown';
-        debugPrint('Biometrics status from server: $s');
+        debugPrint('Checking biometric status and getting challenge...');
+        setState(() => _status = 'Checking device key...');
+        final attendanceRepo = AttendanceRepository();
 
-        if (s == 'approved') {
-          // Use AttendanceRepository + BiometricService to compare hashes and avoid signing with an invalid key
+        // Single atomic call to get status + challenge (prevents race conditions)
+        final Map<String, dynamic> chk = await attendanceRepo.checkKey();
+        final String status = chk['status'] as String? ?? 'none';
+        debugPrint('Biometric status from server: $status');
+
+        if (status != 'approved') {
+          if (status == 'pending') {
+            if (mounted)
+              _showPopup('Awaiting Approval',
+                  'Your device is registered but not yet approved. Please wait for administrator approval.');
+          } else if (status == 'revoked') {
+            if (mounted)
+              _showPopup('Key Revoked',
+                  'Your biometric key was revoked. Please re-register your device.');
+          } else {
+            if (mounted)
+              _showPopup('Not Registered',
+                  'Your device is not registered for biometric attendance. Please register first.');
+          }
+          _resetState();
+          return;
+        }
+
+        // Status is approved - check if we have a challenge
+        final String? challenge = chk['challenge'] as String?;
+        if (challenge == null) {
+          debugPrint(
+              'No challenge returned from server (key may not be fully approved)');
+          if (mounted)
+            _showPopup('No Challenge',
+                'Unable to get authentication challenge. Please try again or contact administrator.');
+          _resetState();
+          return;
+        }
+
+        // Proceed with challenge signing
+        try {
+          setState(() => _status = 'Authenticating with face...');
+          debugPrint(
+              'About to sign challenge with face authentication, challenge length=${challenge.length}');
+
+          // Use the new BiometricService which includes face authentication
+          final String signature =
+              await BiometricService.signChallenge(challenge);
+          debugPrint('Signature received length: ${signature.length}');
+
+          // Use attendance endpoints: verify signature first, then mark present
           try {
-            setState(() => _status = 'Checking device key...');
             final attendanceRepo = AttendanceRepository();
 
-            // Read device PEM if present (do not create)
-            final String? devicePem =
-                await _platform.invokeMethod('getPublicKeyPem') as String?;
-            if (devicePem == null) {
-              debugPrint('No device key present on this device');
-              final doRegister = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('No Device Key'),
-                  content: const Text(
-                      'This device does not have a biometric key. Would you like to register this device for biometric check-in?'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel')),
-                    ElevatedButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text('Register')),
-                  ],
-                ),
-              );
-              if (doRegister == true) {
-                try {
-                  final LocalAuthentication auth2 = LocalAuthentication();
-                  bool okAuth = false;
-                  try {
-                    okAuth = await auth2.authenticate(
-                      localizedReason: 'Authenticate to register this device',
-                      options: const AuthenticationOptions(biometricOnly: true),
-                    );
-                  } catch (e) {
-                    debugPrint('Auth failed while registering: $e');
+            Map<String, dynamic> verifyResp;
+            try {
+              verifyResp = await attendanceRepo.verifyChallenge(
+                  challenge: challenge, signature: signature, qrToken: qrToken);
+              debugPrint('attendance.verifyChallenge returned: $verifyResp');
+            } catch (e) {
+              // Attempt a single retry if server reports a challenge_mismatch
+              try {
+                final dynamic dioResp =
+                    (e is Exception && e.toString().contains('Dio'))
+                        ? (e as dynamic).response
+                        : null;
+                final errData = dioResp != null ? dioResp.data : null;
+                final reason = errData is Map
+                    ? (errData['reason'] ?? errData['error'])
+                    : null;
+                if (reason == 'challenge_mismatch') {
+                  debugPrint(
+                      'challenge_mismatch detected; fetching fresh challenge and retrying');
+                  final Map<String, dynamic> chk2 =
+                      await attendanceRepo.checkKey();
+                  final String? newChallenge = chk2['challenge'] as String?;
+                  if (newChallenge != null) {
+                    final String newSig =
+                        await BiometricService.signChallenge(newChallenge);
+                    verifyResp = await attendanceRepo.verifyChallenge(
+                        challenge: newChallenge,
+                        signature: newSig,
+                        qrToken: qrToken);
+                    debugPrint(
+                        'attendance.verifyChallenge retry returned: $verifyResp');
+                  } else {
+                    throw e;
                   }
-                  if (!okAuth) {
-                    if (mounted)
-                      _showPopup('Registration Cancelled',
-                          'Biometric registration cancelled.');
-                    _resetState();
-                    return;
-                  }
-                  final String newPem = await _platform
-                      .invokeMethod('generateAndGetPublicKeyPem');
-                  await attendanceRepo.registerKey(publicKeyPem: newPem);
-                  if (!mounted) return;
-                  await _showResult('Registration Sent',
-                      'Your device public key has been sent for admin approval.');
-                } catch (e) {
-                  debugPrint('Registration during key-check failed: $e');
-                  if (mounted) _showPopup('Registration Failed', e.toString());
+                } else {
+                  throw e;
                 }
+              } catch (retryErr) {
+                debugPrint('attendance.verifyChallenge failed: $retryErr');
+                if (mounted)
+                  _showPopup('Verification Error', retryErr.toString());
                 _resetState();
                 return;
               }
             }
 
-            final String? clientHash = devicePem != null
-                ? BiometricService.computePublicKeyHash(devicePem)
-                : null;
-            final Map<String, dynamic> chk = await attendanceRepo.checkKey();
-            final String? serverHash = chk['publicKeyHash'] as String?;
-            final String ckStatus = chk['status'] as String? ?? 'none';
+            if (verifyResp['verified'] == true) {
+              // resolved — mark present
+              String studentUid = '';
+              try {
+                final dynamic me = await ApiClient.I.me();
+                if (me != null &&
+                    me['user'] != null &&
+                    me['user']['uid'] != null) {
+                  studentUid = me['user']['uid'] as String;
+                }
+              } catch (_) {}
 
-            debugPrint(
-                'Key compare: clientHash=$clientHash serverHash=$serverHash status=$ckStatus');
-
-            if (serverHash == null || serverHash != clientHash) {
-              // mismatch -> offer re-register
-              final doRegister = await showDialog<bool>(
+              final Map<String, dynamic> markResp = await attendanceRepo
+                  .markPresent(studentUid: studentUid, qrToken: qrToken);
+              debugPrint('attendance.markPresent returned: $markResp');
+              if (!mounted) return;
+              await _showResult('Check-in Result', markResp.toString());
+              _resetState();
+              return;
+            } else if (verifyResp['biometricChanged'] == true) {
+              // Key mismatch/revoked on server — inform user and offer re-register
+              final doReg = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
-                  title: const Text('Biometric Key Mismatch'),
+                  title: const Text('Biometric Key Changed'),
                   content: const Text(
-                      'Your device biometric key does not match the registered key. You can re-register this device for admin approval or contact your administrator.'),
+                      'Your biometric key no longer matches the registered key. The server has revoked the stored key. Would you like to re-register this device for biometric check-in?'),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Contact Admin')),
+                        child: const Text('Later')),
                     ElevatedButton(
                         onPressed: () => Navigator.of(ctx).pop(true),
                         child: const Text('Re-register')),
                   ],
                 ),
               );
-              if (doRegister == true) {
+              if (doReg == true) {
                 try {
-                  final String newPem = await _platform
-                      .invokeMethod('generateAndGetPublicKeyPem');
+                  try {
+                    await BiometricService.deleteLocalKey();
+                  } catch (_) {}
+                  final String newPem =
+                      await BiometricService.generateAndGetPublicKeyPem();
                   await attendanceRepo.registerKey(publicKeyPem: newPem);
                   if (!mounted) return;
                   await _showResult('Registration Sent',
                       'Your device public key has been sent for admin approval.');
-                } catch (e) {
-                  debugPrint('Re-registration failed: $e');
-                  if (mounted) _showPopup('Registration Failed', e.toString());
+                } catch (re) {
+                  debugPrint('Re-registration failed: $re');
+                  if (mounted) _showPopup('Registration Failed', re.toString());
                 }
-                _resetState();
-                return;
               }
-              // user chose not to re-register — fallback to UID
+              _resetState();
+              return;
             } else {
-              // Hash matches -> proceed with challenge-response only if server returned a challenge
-              final String? challenge = chk['challenge'] as String?;
-              if (challenge == null) {
-                throw Exception('no_challenge_from_server');
-              }
-
-              try {
-                setState(() => _status = 'Signing challenge...');
-                debugPrint(
-                    'About to call platform.signChallenge with challenge length=${challenge.length}');
-
-                // Ensure face biometrics are enrolled; prefer face-only flow.
-                try {
-                  final dynamic faceStatus =
-                      await _platform.invokeMethod('getFaceStatus');
-                  final String fs = faceStatus as String? ?? 'not_available';
-                  if (fs == 'not_enrolled') {
-                    final enroll = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Face not enrolled'),
-                        content: const Text(
-                            'Face recognition is not enrolled on this device. To use face-only biometric check-in, please enroll your face in system settings.'),
-                        actions: [
-                          TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancel')),
-                          ElevatedButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Open Settings')),
-                        ],
-                      ),
-                    );
-                    if (enroll == true) {
-                      try {
-                        await _platform.invokeMethod('openBiometricEnroll');
-                      } catch (e) {
-                        await openAppSettings();
-                      }
-                    }
-                    _resetState();
-                    return;
-                  } else if (fs == 'not_available') {
-                    String diagText = '';
-                    try {
-                      final dynamic diag =
-                          await _platform.invokeMethod('getFaceDiagnostics');
-                      if (diag != null && diag is Map) {
-                        final entries = diag.entries
-                            .map((e) => '${e.key}: ${e.value}')
-                            .join('\n');
-                        diagText = '\n\nDiagnostics:\n$entries';
-                      }
-                    } catch (e) {
-                      diagText = '\n\nDiagnostics: unavailable ($e)';
-                    }
-                    if (mounted) {
-                      await showDialog<void>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Face biometric not available'),
-                          content: SingleChildScrollView(
-                            child: Text(
-                                'Face biometric hardware is not available on this device. Please contact your administrator in person to arrange an alternative check-in.' +
-                                    diagText),
-                          ),
-                          actions: [
-                            TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('OK')),
-                          ],
-                        ),
-                      );
-                    }
-                    _resetState();
-                    return;
-                  }
-                } catch (e) {
-                  debugPrint('Biometric modality check failed: $e');
-                }
-
-                final String signature = await _platform.invokeMethod(
-                    'signChallenge', {'challenge': challenge}) as String;
-                debugPrint('Signature received length: ${signature.length}');
-
-                // Use attendance endpoints: verify signature first, then mark present
-                try {
-                  final attendanceRepo = AttendanceRepository();
-
-                  final Map<String, dynamic> verifyResp =
-                      await attendanceRepo.verifyChallenge(
-                          challenge: challenge, signature: signature);
-                  debugPrint(
-                      'attendance.verifyChallenge returned: $verifyResp');
-
-                  if (verifyResp['verified'] == true) {
-                    // resolved — mark present
-                    String studentUid = '';
-                    try {
-                      final dynamic me = await ApiClient.I.me();
-                      if (me != null &&
-                          me['user'] != null &&
-                          me['user']['uid'] != null) {
-                        studentUid = me['user']['uid'] as String;
-                      }
-                    } catch (_) {}
-
-                    final Map<String, dynamic> markResp = await attendanceRepo
-                        .markPresent(studentUid: studentUid, qrToken: qrToken);
-                    debugPrint('attendance.markPresent returned: $markResp');
+              final reason =
+                  verifyResp['reason']?.toString() ?? 'Verification failed';
+              if (mounted) _showPopup('Verification Failed', reason);
+              _resetState();
+              return;
+            }
+          } catch (e) {
+            debugPrint('attendance verify/mark flow failed: $e');
+            if (mounted) _showPopup('Check-in Error', e.toString());
+            _resetState();
+            return;
+          }
+        } catch (e, st) {
+          debugPrint('Challenge signing/verification failed: $e\n$st');
+          String msg = 'Signing failed';
+          try {
+            if (e is PlatformException) {
+              final String code = e.code;
+              final String message = e.message ?? '';
+              if (code == 'key_invalidated' ||
+                  message.contains('Key permanently invalidated')) {
+                final doReg = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Device key invalidated'),
+                    content: const Text(
+                        'Your device biometric key was invalidated (e.g., biometric credentials changed). Re-register this device for biometric check-in now?'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Later')),
+                      ElevatedButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text('Re-register')),
+                    ],
+                  ),
+                );
+                if (doReg == true) {
+                  try {
+                    final String newPem = await _platform
+                        .invokeMethod('generateAndGetPublicKeyPem');
+                    await attendanceRepo.registerKey(publicKeyPem: newPem);
                     if (!mounted) return;
-                    await _showResult('Check-in Result', markResp.toString());
-                    _resetState();
-                    return;
-                  } else if (verifyResp['biometricChanged'] == true) {
-                    // Key mismatch/revoked on server — inform user and offer re-register
-                    final doReg = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Biometric Key Changed'),
-                        content: const Text(
-                            'Your biometric key no longer matches the registered key. The server has revoked the stored key. Would you like to re-register this device for biometric check-in?'),
-                        actions: [
-                          TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Later')),
-                          ElevatedButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Re-register')),
-                        ],
-                      ),
-                    );
-                    if (doReg == true) {
-                      try {
-                        try {
-                          await BiometricService.deleteLocalKey();
-                        } catch (_) {}
-                        final String newPem =
-                            await BiometricService.generateAndGetPublicKeyPem();
-                        await attendanceRepo.registerKey(publicKeyPem: newPem);
-                        if (!mounted) return;
-                        await _showResult('Registration Sent',
-                            'Your device public key has been sent for admin approval.');
-                      } catch (re) {
-                        debugPrint('Re-registration failed: $re');
-                        if (mounted)
-                          _showPopup('Registration Failed', re.toString());
-                      }
-                    }
-                    _resetState();
-                    return;
-                  } else {
-                    final reason = verifyResp['reason']?.toString() ??
-                        'Verification failed';
-                    if (mounted) _showPopup('Verification Failed', reason);
-                    _resetState();
-                    return;
+                    await _showResult('Registration Sent',
+                        'Your device public key has been sent for admin approval.');
+                  } catch (re) {
+                    debugPrint('Re-registration failed: $re');
+                    if (mounted)
+                      _showPopup('Registration Failed', re.toString());
                   }
-                } catch (e) {
-                  debugPrint('attendance verify/mark flow failed: $e');
-                  if (mounted) _showPopup('Check-in Error', e.toString());
                   _resetState();
                   return;
                 }
-              } catch (e, st) {
-                debugPrint('Native signing failed: $e\n$st');
-                String msg = 'Signing failed';
-                try {
-                  if (e is PlatformException) {
-                    final String code = e.code;
-                    final String message = e.message ?? '';
-                    if (code == 'key_invalidated' ||
-                        message.contains('Key permanently invalidated')) {
-                      final doReg = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Device key invalidated'),
-                          content: const Text(
-                              'Your device biometric key was invalidated (e.g., biometric credentials changed). Re-register this device for biometric check-in now?'),
-                          actions: [
-                            TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(false),
-                                child: const Text('Later')),
-                            ElevatedButton(
-                                onPressed: () => Navigator.of(ctx).pop(true),
-                                child: const Text('Re-register')),
-                          ],
-                        ),
-                      );
-                      if (doReg == true) {
-                        try {
-                          final String newPem = await _platform
-                              .invokeMethod('generateAndGetPublicKeyPem');
-                          await attendanceRepo.registerKey(
-                              publicKeyPem: newPem);
-                          if (!mounted) return;
-                          await _showResult('Registration Sent',
-                              'Your device public key has been sent for admin approval.');
-                        } catch (re) {
-                          debugPrint('Re-registration failed: $re');
-                          if (mounted)
-                            _showPopup('Registration Failed', re.toString());
-                        }
-                        _resetState();
-                        return;
-                      }
-                    }
-                  }
+              }
+            }
 
-                  if (e is Exception) {
-                    final typeName = e.runtimeType.toString();
-                    if (typeName.contains('Dio') ||
-                        typeName.contains('DioException')) {
-                      final dynamic resp = (e as dynamic).response;
-                      if (resp != null && resp.data != null) {
-                        msg = resp.data.toString();
-                      } else if (resp != null && resp.statusMessage != null) {
-                        msg = resp.statusMessage.toString();
-                      } else {
-                        msg = e.toString();
-                      }
-                    } else {
-                      msg = e.toString();
-                    }
-                  } else {
-                    msg = e.toString();
-                  }
-                } catch (_) {
+            if (e is Exception) {
+              final typeName = e.runtimeType.toString();
+              if (typeName.contains('Dio') ||
+                  typeName.contains('DioException')) {
+                final dynamic resp = (e as dynamic).response;
+                if (resp != null && resp.data != null) {
+                  msg = resp.data.toString();
+                } else if (resp != null && resp.statusMessage != null) {
+                  msg = resp.statusMessage.toString();
+                } else {
                   msg = e.toString();
                 }
-
-                if (mounted) _showPopup('Signing Failed', msg);
+              } else {
+                msg = e.toString();
               }
+            } else {
+              msg = e.toString();
             }
-          } catch (e) {
-            debugPrint('Key match check failed: $e');
-            if (mounted) _showPopup('Key Check Failed', e.toString());
-            // fallthrough to fallback
+          } catch (_) {
+            msg = e.toString();
           }
-        } else if (s != 'approved') {
-          try {
-            // Before blindly generating a new key, ask attendance API if a pending key exists
-            final attendanceRepo = AttendanceRepository();
-            String? localPem = await BiometricService.getPublicKeyPem();
-            final String? clientHash = localPem != null
-                ? BiometricService.computePublicKeyHash(localPem)
-                : null;
-            final Map<String, dynamic> chk = await attendanceRepo.checkKey();
-            final String? serverHash = chk['publicKeyHash'] as String?;
-            final String ckStatus = chk['status'] as String? ?? 'none';
-            debugPrint(
-                'Pre-register check: serverHash=$serverHash clientHash=$clientHash status=$ckStatus');
 
-            if (serverHash != null && serverHash == clientHash) {
-              // Server already knows this key. If not approved yet, inform user to wait.
-              if (ckStatus != 'approved') {
-                if (mounted)
-                  _showPopup('Awaiting Approval',
-                      'Your device is registered but not yet approved. Please wait for administrator approval.');
-                _resetState();
-                return;
-              }
-              // If approved, fall through to signing flow above (we shouldn't be in this branch normally)
-            }
-
-            // No matching key on server — generate a new key and perform a local sign-test before registering
-            debugPrint('Generating device public key for registration');
-            final String publicKeyPem = await _platform
-                .invokeMethod('generateAndGetPublicKeyPem') as String;
-            debugPrint(
-                'Generated public key PEM length: ${publicKeyPem.length}');
-
-            // Ensure generated key is usable by performing a local sign-test
-            try {
-              final List<int> rnd =
-                  List.generate(32, (_) => Random().nextInt(256));
-              final String testChallenge = base64Encode(rnd);
-              debugPrint('Performing local sign-test before registering key');
-              final String sig =
-                  await BiometricService.signChallenge(testChallenge);
-              debugPrint('Local sign-test succeeded sigLen=${sig.length}');
-            } on PlatformException catch (pe) {
-              debugPrint('Local sign-test failed: $pe');
-              if (mounted)
-                _showPopup('Registration Failed',
-                    'Device key unusable: ${pe.message}');
-              _resetState();
-              return;
-            } catch (e) {
-              debugPrint('Local sign-test failed: $e');
-              if (mounted)
-                _showPopup('Registration Failed', 'Device key unusable: $e');
-              _resetState();
-              return;
-            }
-
-            // Now register
-            await attendanceRepo.registerKey(publicKeyPem: publicKeyPem);
-            if (!mounted) return;
-            await _showResult('Registration Sent',
-                'Your device public key has been sent for admin approval.');
-            _resetState();
-            return;
-          } catch (e) {
-            debugPrint('Key registration failed: $e');
-            if (mounted) _showPopup('Registration Failed', e.toString());
-            // fallthrough to fallback
-          }
+          if (mounted) _showPopup('Signing Failed', msg);
+          _resetState();
+          return;
         }
       } catch (e) {
-        debugPrint('Biometrics status failed: $e');
-      }
+        debugPrint('Biometric check failed: $e');
+        // Only fallback to QR-only if biometric system is completely unavailable
+        // For other errors (not approved, etc), we already showed error messages above
+        if (mounted) {
+          final fallback = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Biometric Check Failed'),
+              content: const Text(
+                  'Biometric authentication failed. Would you like to use QR-only check-in as fallback?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancel')),
+                ElevatedButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Use QR Fallback')),
+              ],
+            ),
+          );
 
-      // Fallback: QR-only flow with UID input
-      final String? fallbackUid = await _askForUid();
-      if (fallbackUid != null && fallbackUid.isNotEmpty) {
-        final resp = await ApiClient.I.checkin(
-            sessionId: '',
-            qrToken: qrToken,
-            studentUid: fallbackUid,
-            method: 'qr');
-        if (!mounted) return;
-        await _showResult('Check-in Result', resp.toString());
+          if (fallback == true) {
+            final String? fallbackUid = await _askForUid();
+            if (fallbackUid != null && fallbackUid.isNotEmpty) {
+              try {
+                final resp = await ApiClient.I.checkin(
+                    sessionId: '',
+                    qrToken: qrToken,
+                    studentUid: fallbackUid,
+                    method: 'qr');
+                if (!mounted) return;
+                await _showResult('Check-in Result', resp.toString());
+              } catch (checkinErr) {
+                if (mounted)
+                  _showPopup('Check-in Failed', checkinErr.toString());
+              }
+            }
+          }
+        }
         _resetState();
         return;
       }
-
-      _resetState();
     } catch (e, st) {
       debugPrint('Scan flow error: $e\n$st');
       if (!mounted) return;

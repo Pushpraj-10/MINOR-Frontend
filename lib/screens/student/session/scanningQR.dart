@@ -152,27 +152,70 @@ class _ScannerQRScreenState extends State<ScannerQRScreen> {
             await BiometricService.signChallenge(challenge);
         debugPrint('Signature length=${signature.length}');
 
-        final verifyResp = await attendanceRepo.verifyChallenge(
-            challenge: challenge, signature: signature);
-        debugPrint('verifyChallenge response: $verifyResp');
+        Map<String, dynamic> verifyResp;
+        try {
+          verifyResp = await attendanceRepo.verifyChallenge(
+              challenge: challenge, signature: signature, qrToken: token);
+          debugPrint('verifyChallenge response: $verifyResp');
+        } catch (e) {
+          // Handle challenge mismatch by requesting a fresh challenge and retrying once
+          try {
+            final dynamic dioResp =
+                (e is Exception && e.toString().contains('Dio'))
+                    ? (e as dynamic).response
+                    : null;
+            final errData = dioResp != null ? dioResp.data : null;
+            final reason =
+                errData is Map ? (errData['reason'] ?? errData['error']) : null;
+            if (reason == 'challenge_mismatch') {
+              debugPrint(
+                  'challenge_mismatch detected; fetching fresh challenge and retrying');
+              final Map<String, dynamic> chk2 = await attendanceRepo.checkKey();
+              final String? newChallenge = chk2['challenge'] as String?;
+              if (newChallenge != null) {
+                final String newSig =
+                    await BiometricService.signChallenge(newChallenge);
+                verifyResp = await attendanceRepo.verifyChallenge(
+                    challenge: newChallenge, signature: newSig, qrToken: token);
+                debugPrint('verifyChallenge retry response: $verifyResp');
+              } else {
+                throw e;
+              }
+            } else {
+              throw e;
+            }
+          } catch (retryErr) {
+            debugPrint('verifyChallenge failed: $retryErr');
+            if (mounted) _showPopup('Verification Error', retryErr.toString());
+            return;
+          }
+        }
 
         final bool verified = verifyResp['verified'] as bool? ?? false;
         if (verified) {
-          // mark present and finish
-          String studentUid = '';
-          try {
-            final dynamic me = await ApiClient.I.me();
-            if (me != null && me['user'] != null && me['user']['uid'] != null) {
-              studentUid = me['user']['uid'] as String;
-            }
-          } catch (_) {}
+          // Server may have atomically marked attendance and returned attendance info.
+          final attendance = verifyResp['attendance'];
+          final attendanceError = verifyResp['attendanceError'];
+          if (attendance != null) {
+            debugPrint('Attendance recorded via verifyChallenge: $attendance');
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Check-in successful')));
+            await Future.delayed(const Duration(milliseconds: 800));
+            if (mounted) Navigator.of(context).pop(true);
+            return;
+          }
+          if (attendanceError != null) {
+            debugPrint('Attendance marking returned error: $attendanceError');
+            if (mounted)
+              _showPopup('Attendance Error', attendanceError.toString());
+            return;
+          }
 
-          final markResp = await attendanceRepo.markPresent(
-              studentUid: studentUid, qrToken: token, sessionId: '');
-          debugPrint('attendance.markPresent returned: $markResp');
+          // No attendance info returned but verification succeeded — treat as success.
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Check-in successful')));
+              const SnackBar(content: Text('Verification successful')));
           await Future.delayed(const Duration(milliseconds: 800));
           if (mounted) Navigator.of(context).pop(true);
           return;

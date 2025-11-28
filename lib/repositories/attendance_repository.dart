@@ -1,22 +1,31 @@
 import 'package:frontend/api/api_client.dart';
 
 class AttendanceRepository {
-  // Calls GET /attendance/check-key
+  // Calls GET /biometrics/check (combined status + challenge)
   Future<Map<String, dynamic>> checkKey() async {
-    return await ApiClient.I.attendanceCheckKey();
+    return await ApiClient.I.biometricCheck();
   }
 
-  // Calls POST /attendance/register-key
+  // Calls POST /biometrics/register-key
   Future<Map<String, dynamic>> registerKey(
       {required String publicKeyPem}) async {
-    return await ApiClient.I.attendanceRegisterKey(publicKeyPem: publicKeyPem);
+    await ApiClient.I.registerBiometricKey(publicKeyPem: publicKeyPem);
+    return {
+      'ok': true
+    }; // registerBiometricKey returns void, so we return success
   }
 
   // Calls POST /attendance/verify-challenge
   Future<Map<String, dynamic>> verifyChallenge(
-      {required String challenge, required String signature}) async {
-    return await ApiClient.I
-        .attendanceVerifyChallenge(challenge: challenge, signature: signature);
+      {required String challenge,
+      required String signature,
+      String? qrToken,
+      String? sessionId}) async {
+    return await ApiClient.I.attendanceVerifyChallenge(
+        challenge: challenge,
+        signature: signature,
+        qrToken: qrToken,
+        sessionId: sessionId);
   }
 
   // Calls POST /attendance/mark-present

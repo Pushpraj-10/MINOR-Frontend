@@ -4,7 +4,6 @@ import 'package:frontend/api/api_client.dart';
 import 'dart:math';
 import 'dart:convert';
 import 'package:frontend/services/biometric_service.dart';
-import 'package:frontend/repositories/attendance_repository.dart';
 import 'package:flutter/services.dart';
 
 class StudentDashboard extends StatefulWidget {
@@ -189,251 +188,222 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Future<void> _handleAttendanceTap(BuildContext context) async {
-    final repo = AttendanceRepository();
     try {
-      // Indicate busy
+      // Show loading
       showDialog(
           context: context,
           barrierDismissible: false,
           builder: (ctx) => const Center(child: CircularProgressIndicator()));
 
-      final me = await ApiClient.I.me();
-      final String myUid = me['user']?['uid'] as String? ?? '';
+      // Step 1: Check biometric status using new combined endpoint
+      final result = await ApiClient.I.biometricCheck();
+      Navigator.of(context).pop(); // Hide loading
 
-      // New flow: compute local publicKeyHash, compare with server before attempting sign.
-      final status = await repo.checkKey();
-      Navigator.of(context).pop(); // hide progress
+      final String status = result['status'] as String? ?? 'none';
+      debugPrint('dashboard: biometric status = $status');
 
-      // Get or create device public key PEM
-      String? publicKeyPem = await BiometricService.getPublicKeyPem();
-      if (publicKeyPem == null) {
-        // No key present on device — create and register
-        try {
-          publicKeyPem = await BiometricService.generateAndGetPublicKeyPem();
-          // self-test sign to ensure key is usable
-          try {
-            final List<int> rnd =
-                List.generate(32, (_) => Random().nextInt(256));
-            final String testChallenge = base64Encode(rnd);
-            await BiometricService.signChallenge(testChallenge);
-          } catch (e) {
-            await showDialog<void>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                      title: const Text('Registration Failed'),
-                      content: Text('Device key unusable: $e'),
-                      actions: [
-                        TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            child: const Text('OK'))
-                      ],
-                    ));
-            return;
-          }
-          await repo.registerKey(publicKeyPem: publicKeyPem);
-          await showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                    title: const Text('Registration Sent'),
-                    content: const Text(
-                        'Your device public key has been sent for admin approval. Please wait and retry.'),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('OK'))
-                    ],
-                  ));
-          return;
-        } catch (e) {
-          await showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                    title: const Text('Registration Failed'),
-                    content: Text(e.toString()),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('OK'))
-                    ],
-                  ));
-          return;
-        }
-      }
+      // Step 2: Handle different status cases
+      switch (status) {
+        case 'none':
+          // No key registered - prompt to register
+          await _showRegistrationDialog(context);
+          break;
 
-      final clientHash = BiometricService.computePublicKeyHash(publicKeyPem);
-      final String? serverHash = status['publicKeyHash'] as String?;
-      final String? sStatus = status['status'] as String?;
-      debugPrint(
-          'dashboard: clientHash=$clientHash serverHash=$serverHash status=$sStatus');
+        case 'pending':
+          // Key registered but awaiting approval
+          await _showAwaitingApprovalDialog(context);
+          break;
 
-      if (serverHash == null || serverHash != clientHash) {
-        // Hash mismatch — register current device key and ask for approval
-        await repo.registerKey(publicKeyPem: publicKeyPem);
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Registration Sent'),
-                  content: const Text(
-                      'Your device public key (local) does not match the server record. The local key has been submitted for admin approval.'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
-        return;
-      }
+        case 'approved':
+          // Key approved - navigate to QR scanner
+          if (!mounted) return;
+          context.push('/student/attendance');
+          break;
 
-      // serverHash == clientHash. Only proceed if approved and a challenge is present
-      if (sStatus != 'approved' || status['challenge'] == null) {
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Awaiting Approval'),
-                  content: const Text(
-                      'Your device is registered but not yet approved. Please wait for administrator approval.'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
-        return;
-      }
+        case 'revoked':
+          // Key was revoked - prompt to re-register
+          await _showReRegistrationDialog(context);
+          break;
 
-      final String challenge = status['challenge'] as String;
-
-      // Attempt to sign
-      String signature;
-      try {
-        signature = await BiometricService.signChallenge(challenge);
-      } on PlatformException catch (pe) {
-        final code = pe.code;
-        final msg = pe.message;
-        if (code == 'key_invalidated' ||
-            (msg != null && msg.contains('Key permanently invalidated'))) {
-          await showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                    title: const Text('Biometrics Changed'),
-                    content: const Text(
-                        'Your biometrics have changed or the device key was invalidated. Ask admin for approval.'),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('OK'))
-                    ],
-                  ));
-          return;
-        }
-        if (code == 'sign_error' &&
-            msg != null &&
-            msg.toLowerCase().contains('cancel')) {
-          // user cancelled
-          return;
-        }
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Signing Failed'),
-                  content: Text(pe.toString()),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
-        return;
-      } catch (e) {
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Signing Failed'),
-                  content: Text(e.toString()),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
-        return;
-      }
-
-      // Send signature to server for verification
-      try {
-        final verifyResp = await repo.verifyChallenge(
-            challenge: challenge, signature: signature);
-        if (verifyResp['biometricChanged'] == true) {
-          await showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                    title: const Text('Biometrics Changed'),
-                    content: const Text(
-                        'Your biometrics have changed. Ask admin for approval.'),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('OK'))
-                    ],
-                  ));
-          return;
-        }
-
-        if (verifyResp['verified'] == true) {
-          // Mark present
-          await repo.markPresent(studentUid: myUid);
-          await showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                    title: const Text('Attendance Marked'),
-                    content: const Text('You have been marked present.'),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('OK'))
-                    ],
-                  ));
-          return;
-        }
-
-        // fallback
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Verification Failed'),
-                  content: Text(verifyResp.toString()),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
-      } catch (e) {
-        await showDialog<void>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-                  title: const Text('Verification Error'),
-                  content: Text(e.toString()),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('OK'))
-                  ],
-                ));
+        default:
+          await _showErrorDialog(context, 'Unknown biometric status: $status');
       }
     } catch (e) {
-      Navigator.of(context).pop();
-      await showDialog<void>(
+      Navigator.of(context).pop(); // Hide loading if still showing
+      await _showErrorDialog(context, 'Failed to check biometric status: $e');
+    }
+  }
+
+  Future<void> _showRegistrationDialog(BuildContext context) async {
+    final register = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Register Device'),
+        content: const Text(
+            'No biometric key is registered for this device. Would you like to register it for biometric attendance?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Later')),
+          ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Register')),
+        ],
+      ),
+    );
+
+    if (register == true) {
+      await _performRegistration(context);
+    }
+  }
+
+  Future<void> _performRegistration(BuildContext context) async {
+    try {
+      // First check if face authentication is available
+      final faceStatus = await BiometricService.getFaceStatus();
+      if (faceStatus == 'not_available') {
+        await _showErrorDialog(context,
+            'Face authentication is not available on this device. Please ensure your device supports biometric authentication.');
+        return;
+      } else if (faceStatus == 'not_enrolled') {
+        final setup = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-                title: const Text('Error'),
-                content: Text(e.toString()),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('OK'))
-                ],
-              ));
+            title: const Text('Setup Face Authentication'),
+            content: const Text(
+                'Face authentication is not set up on this device. Would you like to open settings to enable it?'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Open Settings')),
+            ],
+          ),
+        );
+
+        if (setup == true) {
+          final opened = await BiometricService.openBiometricEnroll();
+          if (!opened) {
+            // Fallback to system settings - you may need to import permission_handler
+            // await Permission.manageExternalStorage.request();
+          }
+        }
+        return;
+      }
+
+      // Authenticate with face before registration
+      final authenticated = await BiometricService.authenticateWithFace();
+      if (!authenticated) {
+        await _showErrorDialog(
+            context, 'Face authentication is required for registration.');
+        return;
+      }
+
+      // Generate and test device key
+      final publicKeyPem = await BiometricService.generateAndGetPublicKeyPem();
+
+      // Test key with local challenge (this will prompt for face auth again)
+      final testChallenge =
+          base64Encode(List.generate(32, (_) => Random().nextInt(256)));
+      await BiometricService.signChallenge(testChallenge);
+
+      // Register with server
+      await ApiClient.I.registerBiometricKey(publicKeyPem: publicKeyPem);
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Registration Sent'),
+          content: const Text(
+              'Your device has been registered for biometric attendance using face authentication. Please wait for admin approval.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'))
+          ],
+        ),
+      );
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      String message = 'Registration failed';
+
+      switch (e.code) {
+        case 'user_cancelled':
+          message = 'Registration cancelled by user';
+          break;
+        case 'authentication_failed':
+          message = 'Face authentication failed. Please try again.';
+          break;
+        case 'no_biometrics_enrolled':
+          message =
+              'No biometric credentials are enrolled. Please set up face lock in device settings.';
+          break;
+        case 'biometric_not_available':
+          message = 'Biometric authentication is not available on this device.';
+          break;
+        default:
+          message = 'Registration failed: ${e.message}';
+      }
+
+      await _showErrorDialog(context, message);
+    } catch (e) {
+      if (!mounted) return;
+      await _showErrorDialog(context, 'Registration failed: $e');
     }
+  }
+
+  Future<void> _showAwaitingApprovalDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Awaiting Approval'),
+        content: const Text(
+            'Your device is registered but not yet approved for biometric attendance. Please wait for administrator approval.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showReRegistrationDialog(BuildContext context) async {
+    final reRegister = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Re-register Device'),
+        content: const Text(
+            'Your biometric key was revoked. Would you like to register this device again?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Later')),
+          ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Re-register')),
+        ],
+      ),
+    );
+
+    if (reRegister == true) {
+      await _performRegistration(context);
+    }
+  }
+
+  Future<void> _showErrorDialog(BuildContext context, String message) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))
+        ],
+      ),
+    );
   }
 }
