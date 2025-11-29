@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import 'package:dio/dio.dart';
@@ -15,88 +16,87 @@ class ApiClient {
             baseUrl: ApiConfig.baseUrl,
             connectTimeout: const Duration(seconds: 10),
             receiveTimeout: const Duration(seconds: 15),
-            headers: {
+            headers: const {
               'Content-Type': 'application/json',
             },
           ),
         ) {
     _dio.interceptors.add(CookieManager(_cookieJar));
-    // Auth + refresh interceptor
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final token = _accessToken;
-        if (token != null && token.isNotEmpty) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        handler.next(options);
-      },
-      onError: (e, handler) async {
-        if (_shouldAttemptRefresh(e)) {
-          try {
-            await _refreshAccessToken();
-            final retryRequest = await _retry(e.requestOptions);
-            return handler.resolve(retryRequest);
-          } catch (_) {
-            // fallthrough to original error
-          }
-        }
-        handler.next(e);
-      },
-    ));
 
-    // Logging interceptor: logs every request, response and error for debugging
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        try {
-          final authPresent = options.headers['Authorization'] != null;
-          String bodyPreview = '';
-          if (options.data != null) {
-            final String encoded = options.data is String
-                ? options.data as String
-                : jsonEncode(options.data);
-            bodyPreview = encoded.substring(0, encoded.length.clamp(0, 200));
+    // -----------------------------
+    // Auth interceptor with refresh
+    // -----------------------------
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = _accessToken;
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
           }
-          debugPrint(
-              'ApiClient.request → ${options.method} ${options.path} authPresent=${authPresent} bodyPreview=${bodyPreview}');
-        } catch (e) {
-          debugPrint('ApiClient.request → (logging failed): $e');
-        }
-        handler.next(options);
-      },
-      onResponse: (response, handler) async {
-        try {
-          final status = response.statusCode;
-          final data = response.data;
-          String dataPreview = '';
-          if (data != null) {
-            final String encoded = data is String ? data : jsonEncode(data);
-            dataPreview = encoded.substring(0, encoded.length.clamp(0, 400));
+          handler.next(options);
+        },
+        onError: (e, handler) async {
+          if (_shouldAttemptRefresh(e)) {
+            try {
+              await _refreshAccessToken();
+              final retried = await _retry(e.requestOptions);
+              return handler.resolve(retried);
+            } catch (_) {
+              // fall through to original error
+            }
           }
-          debugPrint(
-              'ApiClient.response ← ${response.requestOptions.method} ${response.requestOptions.path} status=$status dataPreview=${dataPreview}');
-        } catch (e) {
-          debugPrint('ApiClient.response ← (logging failed): $e');
-        }
-        handler.next(response);
-      },
-      onError: (err, handler) async {
-        try {
-          final req = err.requestOptions;
-          final status = err.response?.statusCode;
-          final data = err.response?.data;
-          String dataPreview = '';
-          if (data != null) {
-            final String encoded = data is String ? data : jsonEncode(data);
-            dataPreview = encoded.substring(0, encoded.length.clamp(0, 400));
-          }
-          debugPrint(
-              'ApiClient.error ← ${req.method} ${req.path} status=${status} dataPreview=${dataPreview}');
-        } catch (e) {
-          debugPrint('ApiClient.error ← (logging failed): $e');
-        }
-        handler.next(err);
-      },
-    ));
+          handler.next(e);
+        },
+      ),
+    );
+
+    // -----------------------------
+    // Safe structured logging
+    // -----------------------------
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          try {
+            final auth = options.headers['Authorization'] != null;
+            final data = options.data;
+            final encoded = data == null
+                ? ''
+                : (data is String ? data : jsonEncode(data));
+            final preview =
+                encoded.length > 200 ? '${encoded.substring(0, 200)}…' : encoded;
+            debugPrint(
+                'ApiClient.request → ${options.method} ${options.path} auth=$auth body=$preview');
+          } catch (_) {}
+          handler.next(options);
+        },
+        onResponse: (res, handler) {
+          try {
+            final status = res.statusCode;
+            final encoded =
+                res.data == null ? '' : (res.data is String ? res.data : jsonEncode(res.data));
+            final preview =
+                encoded.length > 400 ? '${encoded.substring(0, 400)}…' : encoded;
+            debugPrint(
+                'ApiClient.response ← ${res.requestOptions.method} ${res.requestOptions.path} status=$status data=$preview');
+          } catch (_) {}
+          handler.next(res);
+        },
+        onError: (err, handler) {
+          try {
+            final req = err.requestOptions;
+            final status = err.response?.statusCode;
+            final data = err.response?.data;
+            final encoded =
+                data == null ? '' : (data is String ? data : jsonEncode(data));
+            final preview =
+                encoded.length > 400 ? '${encoded.substring(0, 400)}…' : encoded;
+            debugPrint(
+                'ApiClient.error ← ${req.method} ${req.path} status=$status data=$preview');
+          } catch (_) {}
+          handler.next(err);
+        },
+      ),
+    );
   }
 
   static final ApiClient _instance = ApiClient._internal();
@@ -106,53 +106,56 @@ class ApiClient {
   final CookieJar _cookieJar = CookieJar();
   String? _accessToken;
 
+  // -----------------------------------------------------------------
+  // Token management
+  // -----------------------------------------------------------------
   void setAccessToken(String? token) {
     _accessToken = token;
   }
 
-  Future<Response<T>> _retry<T>(RequestOptions requestOptions) async {
-    final Options opts = Options(
-      method: requestOptions.method,
-      headers: requestOptions.headers,
-      responseType: requestOptions.responseType,
-      contentType: requestOptions.contentType,
-      sendTimeout: requestOptions.sendTimeout,
-      receiveTimeout: requestOptions.receiveTimeout,
-    );
+  Future<Response<T>> _retry<T>(RequestOptions req) {
     return _dio.request<T>(
-      requestOptions.path,
-      data: requestOptions.data,
-      queryParameters: requestOptions.queryParameters,
-      options: opts,
+      req.path,
+      data: req.data,
+      queryParameters: req.queryParameters,
+      options: Options(
+        method: req.method,
+        headers: req.headers,
+        responseType: req.responseType,
+        contentType: req.contentType,
+        sendTimeout: req.sendTimeout,
+        receiveTimeout: req.receiveTimeout,
+      ),
     );
   }
 
   bool _shouldAttemptRefresh(DioException e) {
-    return e.response?.statusCode == 401 &&
-        !_isRefreshCall(e.requestOptions.path);
+    return e.response?.statusCode == 401 && !_isRefreshCall(e.requestOptions.path);
   }
 
   bool _isRefreshCall(String path) => path.endsWith(ApiConfig.authRefresh);
 
   Future<void> _refreshAccessToken() async {
     final res = await _dio.post(ApiConfig.authRefresh);
-    final data = res.data as Map<String, dynamic>;
+    final data = Map<String, dynamic>.from(res.data as Map);
     final token = data['accessToken'] as String?;
-    if (token != null && token.isNotEmpty) {
-      _accessToken = token;
-    } else {
+    if (token == null || token.isEmpty) {
       throw DioException(
         requestOptions: RequestOptions(path: ApiConfig.authRefresh),
         response: Response(
-            requestOptions: RequestOptions(path: ApiConfig.authRefresh),
-            statusCode: 401),
+          requestOptions: RequestOptions(path: ApiConfig.authRefresh),
+          statusCode: 401,
+        ),
         type: DioExceptionType.badResponse,
         error: 'Refresh failed',
       );
     }
+    _accessToken = token;
   }
 
-  // Auth API
+  // -----------------------------------------------------------------
+  // Auth
+  // -----------------------------------------------------------------
   Future<Map<String, dynamic>> register({
     required String email,
     required String password,
@@ -165,16 +168,18 @@ class ApiClient {
       if (name != null) 'name': name,
       'role': role,
     });
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<Map<String, dynamic>> login(
-      {required String email, required String password}) async {
+  Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  }) async {
     final res = await _dio.post(ApiConfig.authLogin, data: {
       'email': email,
       'password': password,
     });
-    final map = res.data as Map<String, dynamic>;
+    final map = Map<String, dynamic>.from(res.data as Map);
     final token = map['accessToken'] as String?;
     if (token != null) setAccessToken(token);
     return map;
@@ -188,29 +193,33 @@ class ApiClient {
 
   Future<Map<String, dynamic>> me() async {
     final res = await _dio.get(ApiConfig.authMe);
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  // Sessions
-  Future<Map<String, dynamic>> createSession(
-      {String? title, int durationMinutes = 30}) async {
+  // -----------------------------------------------------------------
+  // Sessions (legacy — for professors)
+  // -----------------------------------------------------------------
+  Future<Map<String, dynamic>> createSession({
+    String? title,
+    int durationMinutes = 30,
+  }) async {
     final res = await _dio.post(ApiConfig.sessions, data: {
       'title': title,
       'durationMinutes': durationMinutes,
     });
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<Map<String, dynamic>> checkin(
-      {required String sessionId,
-      required String qrToken,
-      required String studentUid,
-      List<double>? embedding,
-      // Biometric optional fields
-      String? method,
-      String? challenge,
-      String? signature}) async {
-    final Map<String, dynamic> body = {
+  Future<Map<String, dynamic>> checkin({
+    required String sessionId,
+    required String qrToken,
+    required String studentUid,
+    List<double>? embedding,
+    String? method,
+    String? challenge,
+    String? signature,
+  }) async {
+    final body = <String, dynamic>{
       'sessionId': sessionId,
       'qrToken': qrToken,
       'studentUid': studentUid,
@@ -221,127 +230,84 @@ class ApiClient {
     if (signature != null) body['signature'] = signature;
 
     final res = await _dio.post(ApiConfig.sessionsCheckin, data: body);
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  // Biometrics (hardware-backed)
-  Future<void> requestBiometricsEnable() async {
-    await _dio.post(ApiConfig.biometricsRequestEnable);
-  }
-
-  Future<Map<String, dynamic>> getBiometricsStatus() async {
-    final res = await _dio.get(ApiConfig.biometricsStatus);
-    return res.data as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> getBiometricPublicKey() async {
-    final res = await _dio.get(ApiConfig.biometricsPublicKey);
-    return res.data as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> checkBiometricKey(
-      {required String publicKeyPem}) async {
-    final res = await _dio.post(ApiConfig.biometricsCheckKey,
-        data: {'publicKeyPem': publicKeyPem});
-    return res.data as Map<String, dynamic>;
-  }
-
+  // -----------------------------------------------------------------
+  // Biometrics (core of QR→biometric→verify→mark flow)
+  // -----------------------------------------------------------------
   Future<void> registerBiometricKey({required String publicKeyPem}) async {
-    // Temporary debug logging to trace registration requests
-    print(
-        'ApiClient.registerBiometricKey: sending pemLength=${publicKeyPem.length}');
+    debugPrint('ApiClient.registerBiometricKey: pemLength=${publicKeyPem.length}');
     try {
-      final res = await _dio.post(ApiConfig.biometricsRegisterKey,
-          data: {'publicKeyPem': publicKeyPem});
-      print(
-          'ApiClient.registerBiometricKey: success status=${res.statusCode} data=${res.data}');
+      final res = await _dio.post(
+        ApiConfig.biometricsRegisterKey,
+        data: {'publicKeyPem': publicKeyPem},
+      );
+      debugPrint('ApiClient.registerBiometricKey → status=${res.statusCode}');
     } catch (err) {
-      print('ApiClient.registerBiometricKey: error $err');
-      try {
-        if (err is DioException) {
-          print(
-              'ApiClient.registerBiometricKey: dio response status=${err.response?.statusCode} data=${err.response?.data}');
-        }
-      } catch (_) {}
+      if (err is DioException) {
+        debugPrint(
+            'ApiClient.registerBiometricKey error: ${err.response?.statusCode} data=${err.response?.data}');
+      }
       rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> getBiometricChallenge() async {
-    final res = await _dio.get(ApiConfig.biometricsChallenge);
-    return res.data as Map<String, dynamic>;
-  }
-
-  // Biometric check endpoint (combined status + challenge)
+  /// GET /biometrics/check → { status, publicKeyHash?, challenge? }
   Future<Map<String, dynamic>> biometricCheck() async {
     final res = await _dio.get(ApiConfig.biometricsCheck);
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<Map<String, dynamic>> attendanceVerifyChallenge(
-      {required String challenge,
-      required String signature,
-      String? qrToken,
-      String? sessionId}) async {
-    final body = {'challenge': challenge, 'signature': signature};
+  /// POST /attendance/verify-challenge
+  /// → { verified: bool, biometricChanged?: bool, reason?: string }
+  Future<Map<String, dynamic>> attendanceVerifyChallenge({
+    required String challenge,
+    required String signature,
+    String? qrToken,
+    String? sessionId,
+  }) async {
+    final body = <String, dynamic>{
+      'challenge': challenge,
+      'signature': signature,
+    };
     if (qrToken != null) body['qrToken'] = qrToken;
     if (sessionId != null) body['sessionId'] = sessionId;
-    final res =
-        await _dio.post(ApiConfig.attendanceVerifyChallenge, data: body);
-    return res.data as Map<String, dynamic>;
+
+    final res = await _dio.post(ApiConfig.attendanceVerifyChallenge, data: body);
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<Map<String, dynamic>> attendanceMarkPresent(
-      {String? studentUid, String? qrToken, String? sessionId}) async {
+  /// POST /attendance/mark-present → marks student present
+  Future<Map<String, dynamic>> attendanceMarkPresent({
+    required String? qrToken,
+    String? studentUid,
+    String? sessionId,
+  }) async {
     final body = <String, dynamic>{};
-    if (studentUid != null) body['studentUid'] = studentUid;
     if (qrToken != null) body['qrToken'] = qrToken;
+    if (studentUid != null) body['studentUid'] = studentUid;
     if (sessionId != null) body['sessionId'] = sessionId;
+
     final res = await _dio.post(ApiConfig.attendanceMarkPresent, data: body);
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<Map<String, dynamic>> validateBiometric(
-      {required String challenge, required String signature}) async {
-    final res = await _dio.post(ApiConfig.biometricsValidate,
-        data: {'challenge': challenge, 'signature': signature});
-    return res.data as Map<String, dynamic>;
-  }
-
-  Future<void> revokeBiometric({String? reason}) async {
-    await _dio.post(ApiConfig.biometricsRevoke,
-        data: {if (reason != null) 'reason': reason});
-  }
-
-  Future<void> deleteBiometricKey() async {
-    await _dio.delete(ApiConfig.biometricsDeleteKey);
-  }
-
-  // Admin
-  Future<void> adminApproveBiometric({required String userId}) async {
-    await _dio.post(ApiConfig.biometricsAdminApprove, data: {'userId': userId});
-  }
-
-  Future<void> adminRevokeBiometric(
-      {required String userId, String? reason}) async {
-    await _dio.post(ApiConfig.biometricsAdminRevoke,
-        data: {'userId': userId, if (reason != null) 'reason': reason});
-  }
-
-  // Attendance
+  // -----------------------------------------------------------------
+  // Admin + Attendance views
+  // -----------------------------------------------------------------
   Future<Map<String, dynamic>> attendanceBySession(String sessionId) async {
     final res = await _dio.get(ApiConfig.attendanceBySession(sessionId));
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
-  // Professor Sessions
   Future<Map<String, dynamic>> getProfessorSessions() async {
     final res = await _dio.get(ApiConfig.professorSessions);
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 
   Future<Map<String, dynamic>> getSessionAttendance(String sessionId) async {
     final res = await _dio.get(ApiConfig.professorSessionAttendance(sessionId));
-    return res.data as Map<String, dynamic>;
+    return Map<String, dynamic>.from(res.data as Map);
   }
 }

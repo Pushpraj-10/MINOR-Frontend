@@ -49,28 +49,18 @@ class _StudentDashboardState extends State<StudentDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212), // Dark mode background
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0f1d3a),
         elevation: 0,
-        iconTheme: const IconThemeData(
-          color: Colors.white, // Set the color for all icons in the AppBar
-        ),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: Row(
           children: [
-            // App logo
-            Image.asset(
-              "assets/images/IIITNR_Logo.png",
-              height: 24,
-              width: 24,
-            ),
+            Image.asset("assets/images/IIITNR_Logo.png", height: 24, width: 24),
             const SizedBox(width: 8),
             Text(
               _loading ? 'Loading...' : 'Welcome, ${_name ?? 'Student'}',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-              ),
+              style: const TextStyle(fontSize: 16, color: Colors.white),
             ),
           ],
         ),
@@ -89,31 +79,26 @@ class _StudentDashboardState extends State<StudentDashboard> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Grid Section
             Padding(
               padding: const EdgeInsets.all(12.0),
               child: GridView.count(
                 crossAxisCount: 3,
                 shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
-                physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  _buildDashboardTile(context, Icons.warning, "Complaint"),
-                  _buildDashboardTile(
-                      context, Icons.directions_walk, "Gatepass"),
-                  _buildDashboardTile(context, Icons.shopping_cart, "Buy/Sell"),
-                  _buildDashboardTile(context, Icons.contacts, "Contacts"),
-                  _buildDashboardTile(context, Icons.search, "Found/Lost"),
-                  _buildDashboardTile(
-                      context, Icons.help_outline, "Contact\nDevelopers"),
-                  _buildDashboardTile(
-                      context, Icons.calendar_today, "Attendance"),
+                  _buildTile(context, Icons.warning, "Complaint"),
+                  _buildTile(context, Icons.directions_walk, "Gatepass"),
+                  _buildTile(context, Icons.shopping_cart, "Buy/Sell"),
+                  _buildTile(context, Icons.contacts, "Contacts"),
+                  _buildTile(context, Icons.search, "Found/Lost"),
+                  _buildTile(context, Icons.help_outline, "Contact\nDevelopers"),
+                  _buildTile(context, Icons.calendar_today, "Attendance"),
                 ],
               ),
             ),
 
-            // Announcement Card
             Container(
               margin: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -133,8 +118,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    "Can you believe it's been a year since the IIIT NR app launched? Still crashes less than our GPA but "
-                    "more than our will to live. Cheers to 365 days of “please try again later”!!",
+                    "One year since the IIIT NR app launched. "
+                    "Still crashes less than our GPA.",
                     style: TextStyle(color: Colors.white70, fontSize: 14),
                   ),
                   const SizedBox(height: 12),
@@ -157,17 +142,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
-  Widget _buildDashboardTile(
-      BuildContext context, IconData icon, String label) {
+  Widget _buildTile(BuildContext context, IconData icon, String label) {
     return GestureDetector(
       onTap: () {
-        if (label == 'Attendance') {
-          _handleAttendanceTap(context);
+        if (label == "Attendance") {
+          _handleAttendance(context);
         }
       },
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFFB39DDB), // Lavender tile color
+          color: const Color(0xFFB39DDB),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Column(
@@ -178,8 +162,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.black87, fontWeight: FontWeight.bold),
+              style:
+                  const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -187,221 +171,187 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
-  Future<void> _handleAttendanceTap(BuildContext context) async {
+  // ======================================================
+  // NEW BIOMETRIC LOGIC (matching final MainActivity.kt)
+  // ======================================================
+  Future<void> _handleAttendance(BuildContext context) async {
     try {
-      // Show loading
       showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => const Center(child: CircularProgressIndicator()));
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
 
-      // Step 1: Check biometric status using new combined endpoint
       final result = await ApiClient.I.biometricCheck();
-      Navigator.of(context).pop(); // Hide loading
+      Navigator.of(context).pop();
 
-      final String status = result['status'] as String? ?? 'none';
-      debugPrint('dashboard: biometric status = $status');
+      final String status = result['status'] ?? 'none';
 
-      // Step 2: Handle different status cases
       switch (status) {
         case 'none':
-          // No key registered - prompt to register
-          await _showRegistrationDialog(context);
+          await _showRegisterDialog(context);
           break;
 
         case 'pending':
-          // Key registered but awaiting approval
-          await _showAwaitingApprovalDialog(context);
+          await _showAwaitingApproval(context);
           break;
 
         case 'approved':
-          // Key approved - navigate to QR scanner
-          if (!mounted) return;
           context.push('/student/attendance');
           break;
 
         case 'revoked':
-          // Key was revoked - prompt to re-register
-          await _showReRegistrationDialog(context);
+          await _showReRegisterDialog(context);
           break;
 
         default:
-          await _showErrorDialog(context, 'Unknown biometric status: $status');
+          await _error(context, "Unknown biometric status: $status");
       }
     } catch (e) {
-      Navigator.of(context).pop(); // Hide loading if still showing
-      await _showErrorDialog(context, 'Failed to check biometric status: $e');
+      Navigator.of(context).pop();
+      await _error(context, "Failed: $e");
     }
   }
 
-  Future<void> _showRegistrationDialog(BuildContext context) async {
-    final register = await showDialog<bool>(
+  Future<void> _showRegisterDialog(BuildContext context) async {
+    final choice = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Register Device'),
         content: const Text(
-            'No biometric key is registered for this device. Would you like to register it for biometric attendance?'),
+            'No biometric key registered. Do you want to register this device?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Later')),
           ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text('Register')),
         ],
       ),
     );
 
-    if (register == true) {
+    if (choice == true) {
       await _performRegistration(context);
     }
   }
 
   Future<void> _performRegistration(BuildContext context) async {
     try {
-      // First check if face authentication is available
-      final faceStatus = await BiometricService.getFaceStatus();
-      if (faceStatus == 'not_available') {
-        await _showErrorDialog(context,
-            'Face authentication is not available on this device. Please ensure your device supports biometric authentication.');
+      // Ask native for face availability
+      final status = await BiometricService.getFaceStatus();
+
+      if (status == 'not_available') {
+        await _error(context, "Biometrics not available on this device");
         return;
-      } else if (faceStatus == 'not_enrolled') {
-        final setup = await showDialog<bool>(
+      }
+
+      if (status == 'not_enrolled') {
+        final open = await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Setup Face Authentication'),
-            content: const Text(
-                'Face authentication is not set up on this device. Would you like to open settings to enable it?'),
+          builder: (_) => AlertDialog(
+            title: const Text("Setup Biometrics"),
+            content: const Text("No biometrics enrolled. Open settings?"),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
+                  onPressed: () => Navigator.pop(context, false),
                   child: const Text('Cancel')),
               ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
+                  onPressed: () => Navigator.pop(context, true),
                   child: const Text('Open Settings')),
             ],
           ),
         );
 
-        if (setup == true) {
-          final opened = await BiometricService.openBiometricEnroll();
-          if (!opened) {
-            // Fallback to system settings - you may need to import permission_handler
-            // await Permission.manageExternalStorage.request();
-          }
+        if (open == true) {
+          await BiometricService.openBiometricEnroll();
         }
         return;
       }
 
-      // Authenticate with face before registration
-      final authenticated = await BiometricService.authenticateWithFace();
-      if (!authenticated) {
-        await _showErrorDialog(
-            context, 'Face authentication is required for registration.');
-        return;
-      }
+      // Generate keypair
+      final pem = await BiometricService.generateAndGetPublicKeyPem();
 
-      // Generate and test device key
-      final publicKeyPem = await BiometricService.generateAndGetPublicKeyPem();
-
-      // Test key with local challenge (this will prompt for face auth again)
-      final testChallenge =
+      // Test signing process (this will prompt biometric)
+      final challenge =
           base64Encode(List.generate(32, (_) => Random().nextInt(256)));
-      await BiometricService.signChallenge(testChallenge);
 
-      // Register with server
-      await ApiClient.I.registerBiometricKey(publicKeyPem: publicKeyPem);
+      await BiometricService.signChallenge(challenge);
+
+      // Register with backend
+      await ApiClient.I.registerBiometricKey(publicKeyPem: pem);
 
       if (!mounted) return;
-      await showDialog<void>(
+
+      await showDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Registration Sent'),
+        builder: (_) => AlertDialog(
+          title: const Text('Registration Complete'),
           content: const Text(
-              'Your device has been registered for biometric attendance using face authentication. Please wait for admin approval.'),
+              'Your device key has been registered. Wait for admin approval.'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('OK'))
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK')),
           ],
         ),
       );
     } on PlatformException catch (e) {
-      if (!mounted) return;
-      String message = 'Registration failed';
-
-      switch (e.code) {
-        case 'user_cancelled':
-          message = 'Registration cancelled by user';
-          break;
-        case 'authentication_failed':
-          message = 'Face authentication failed. Please try again.';
-          break;
-        case 'no_biometrics_enrolled':
-          message =
-              'No biometric credentials are enrolled. Please set up face lock in device settings.';
-          break;
-        case 'biometric_not_available':
-          message = 'Biometric authentication is not available on this device.';
-          break;
-        default:
-          message = 'Registration failed: ${e.message}';
-      }
-
-      await _showErrorDialog(context, message);
+      await _error(context, e.message ?? "Biometric error");
     } catch (e) {
-      if (!mounted) return;
-      await _showErrorDialog(context, 'Registration failed: $e');
+      await _error(context, "Registration failed: $e");
     }
   }
 
-  Future<void> _showAwaitingApprovalDialog(BuildContext context) async {
-    await showDialog<void>(
+  Future<void> _showAwaitingApproval(BuildContext context) async {
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Awaiting Approval'),
         content: const Text(
-            'Your device is registered but not yet approved for biometric attendance. Please wait for administrator approval.'),
+            'Your key is registered but not approved yet. Please wait.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK')),
         ],
       ),
     );
   }
 
-  Future<void> _showReRegistrationDialog(BuildContext context) async {
-    final reRegister = await showDialog<bool>(
+  Future<void> _showReRegisterDialog(BuildContext context) async {
+    final choice = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Re-register Device'),
         content: const Text(
-            'Your biometric key was revoked. Would you like to register this device again?'),
+            'Your biometric key was revoked. Register again?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Later')),
           ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text('Re-register')),
         ],
       ),
     );
 
-    if (reRegister == true) {
+    if (choice == true) {
       await _performRegistration(context);
     }
   }
 
-  Future<void> _showErrorDialog(BuildContext context, String message) async {
-    await showDialog<void>(
+  Future<void> _error(BuildContext context, String msg) async {
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(message),
+      builder: (_) => AlertDialog(
+        title: const Text("Error"),
+        content: Text(msg),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'))
         ],
       ),
     );

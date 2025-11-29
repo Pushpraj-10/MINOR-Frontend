@@ -86,6 +86,7 @@ class _ScannerQRScreenState extends State<ScannerQRScreen> {
       try {
         final attendanceRepo = AttendanceRepository();
 
+
         // Ensure device has a public key; try to read it, otherwise generate one.
         String? publicKeyPem = await BiometricService.getPublicKeyPem();
         if (publicKeyPem == null) {
