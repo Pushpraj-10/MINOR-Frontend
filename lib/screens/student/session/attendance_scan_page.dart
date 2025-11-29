@@ -76,7 +76,8 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
 
       // Lightweight self-test (ensures key is usable + triggers OS auth UX once)
       try {
-        final test = base64Encode(List.generate(16, (_) => Random().nextInt(256)));
+        final test =
+            base64Encode(List.generate(16, (_) => Random().nextInt(256)));
         await BiometricService.signChallenge(test);
       } on PlatformException catch (e) {
         _fail('Local key unusable: ${e.message ?? e.code}');
@@ -100,7 +101,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
         _info(
           'Registration Sent',
           'Your device public key has been sent for admin approval. '
-          'Please try again after approval.',
+              'Please try again after approval.',
         );
         return;
       }
@@ -135,7 +136,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           qrToken: qrToken,
         );
       } catch (e) {
-        // Retry once on explicit challenge mismatch (optional)
+        // Retry once on explicit challenge mismatch
         if (e.toString().contains('challenge_mismatch')) {
           final check2 = await repo.checkKey();
           final String? c2 = check2['challenge'] as String?;
@@ -156,10 +157,10 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
 
       final verified = verifyResp['verified'] as bool? ?? false;
       if (!verified) {
-        if (verifyResp['biometricChanged'] == true) {
+        if (verifyResp['revoked'] == true) {
           _info(
-            'Biometric Key Changed',
-            'Your biometric key no longer matches the server. Please re-register this device.',
+            'Device Key Revoked',
+            'Your device key was revoked on the server. Please re-register this device.',
           );
           return;
         }
@@ -179,15 +180,19 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       final mark = await repo.markPresent(
         qrToken: qrToken,
         studentUid: studentUid,
+        method: 'biometric',
       );
 
-      // Basic success feedback
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Check-in successful')),
-      );
-      await Future.delayed(const Duration(milliseconds: 700));
-      if (mounted) Navigator.of(context).pop(mark);
+      if (mark['ok'] == true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Check-in successful')),
+        );
+        await Future.delayed(const Duration(milliseconds: 700));
+        if (mounted) Navigator.of(context).pop(mark);
+      } else {
+        _fail(mark['reason']?.toString() ?? 'Marking attendance failed.');
+      }
     } on PlatformException catch (e) {
       if (e.code == 'key_invalidated') {
         _info(
@@ -216,7 +221,9 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       builder: (c) => AlertDialog(
         title: const Text('Error'),
         content: Text(msg),
-        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))
+        ],
       ),
     );
   }
@@ -228,7 +235,9 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       builder: (c) => AlertDialog(
         title: Text(title),
         content: Text(msg),
-        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))
+        ],
       ),
     );
   }
