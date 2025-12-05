@@ -9,6 +9,10 @@ import 'package:frontend/screens/professor/session/sessionCreation.dart';
 import 'package:frontend/screens/professor/sessions/sessions_list_page.dart';
 import 'package:frontend/screens/professor/sessions/session_attendance_page.dart';
 import 'package:frontend/screens/student/session/attendance_scan_page.dart';
+import 'package:frontend/screens/admin/manage_users_screen.dart';
+import 'package:frontend/screens/admin/edit_user_role_screen.dart';
+import 'package:frontend/screens/admin/biometric_requests_screen.dart';
+import 'package:frontend/screens/admin/dashboard.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -38,6 +42,12 @@ final GoRouter router = GoRouter(
       },
     ),
     GoRoute(
+      path: '/admin/dashboard',
+      builder: (BuildContext context, GoRouterState state) {
+        return const AdminDashboard();
+      },
+    ),
+    GoRoute(
       path: '/professor/session',
       builder: (BuildContext context, GoRouterState state) {
         return CreatePassPage();
@@ -61,6 +71,26 @@ final GoRouter router = GoRouter(
       builder: (BuildContext context, GoRouterState state) {
         final sessionId = state.pathParameters['sessionId']!;
         return SessionAttendancePage(sessionId: sessionId);
+      },
+    ),
+    GoRoute(
+      path: '/admin/manage-users',
+      builder: (BuildContext context, GoRouterState state) {
+        return const ManageUsersScreen();
+      },
+    ),
+    GoRoute(
+      path: '/admin/users/:uid/edit-role',
+      builder: (BuildContext context, GoRouterState state) {
+        final uid = state.pathParameters['uid']!;
+        final initial = state.extra;
+        return EditUserRoleScreen(uid: uid, initialUser: initial);
+      },
+    ),
+    GoRoute(
+      path: '/admin/biometric-requests',
+      builder: (BuildContext context, GoRouterState state) {
+        return const BiometricRequestsScreen();
       },
     ),
   ],

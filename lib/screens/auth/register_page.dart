@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/api/api_client.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -53,8 +54,17 @@ class _RegisterPageState extends State<RegisterPage> {
       debugPrint('$stackTrace');
 
       if (!mounted) return;
+      final message = formatErrorWithContext(
+        e,
+        action: 'register',
+        reasons: const [
+          'Email is already registered',
+          'Password does not meet minimum policy',
+          'Device lost connectivity while contacting the server',
+        ],
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Registration failed')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);

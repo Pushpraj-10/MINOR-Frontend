@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/api/api_client.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class ProfessorSessionsListPage extends StatefulWidget {
   const ProfessorSessionsListPage({Key? key}) : super(key: key);
@@ -45,9 +46,18 @@ class _ProfessorSessionsListPageState extends State<ProfessorSessionsListPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load sessions: $e')),
+        final message = formatErrorWithContext(
+          e,
+          action: 'load your sessions',
+          reasons: const [
+            'Internet connection is unstable',
+            'Server rejected the request due to missing permissions',
+            'Session list is temporarily unavailable',
+          ],
+          fallback: 'Failed to load sessions',
         );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     }
   }

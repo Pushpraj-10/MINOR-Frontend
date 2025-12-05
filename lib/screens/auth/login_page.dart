@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/api/api_client.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -43,15 +44,29 @@ class _LoginPageState extends State<LoginPage> {
         final res = await ApiClient.I.login(email: email, password: password);
         final role = (res['user']?['role'] as String?) ?? 'student';
         if (!mounted) return;
-        if (role == 'professor') {
-          context.go('/professor/dashboard');
-        } else {
-          context.go('/student/dashboard');
+        switch (role) {
+          case 'admin':
+            context.go('/admin/dashboard');
+            break;
+          case 'professor':
+            context.go('/professor/dashboard');
+            break;
+          default:
+            context.go('/student/dashboard');
         }
       } catch (e) {
         if (!mounted) return;
+        final message = formatErrorWithContext(
+          e,
+          action: 'log in',
+          reasons: const [
+            'Email or password is incorrect',
+            'Your account is not approved for this role yet',
+            'Device is offline or the server is unreachable',
+          ],
+        );
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid Credentials!')),
+          SnackBar(content: Text(message)),
         );
       }
 

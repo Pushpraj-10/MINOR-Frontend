@@ -35,12 +35,16 @@ class AttendanceRepository {
     String? studentUid,
     String? sessionId,
     String? method,
+    String? challenge,
+    String? signature,
   }) async {
     final res = await ApiClient.I.attendanceMarkPresent(
       studentUid: studentUid,
       qrToken: qrToken,
       sessionId: sessionId,
       method: method,
+      challenge: challenge,
+      signature: signature,
     );
     return Map<String, dynamic>.from(res);
   }

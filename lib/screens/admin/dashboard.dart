@@ -94,7 +94,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       route: '/admin/manage-users'),
                   _buildTile(
                       context, Icons.fingerprint, 'Manage Biometrics Requests',
-                      route: '/admin/biometrics-requests'),
+                      route: '/admin/biometric-requests'),
                 ],
               ),
             ),

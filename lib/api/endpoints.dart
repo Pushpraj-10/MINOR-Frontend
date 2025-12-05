@@ -43,4 +43,11 @@ class ApiConfig {
   static const String attendanceVerifyChallenge =
       '/attendance/verify-challenge';
   static const String attendanceMarkPresent = '/attendance/mark-present';
+
+  // Admin
+  static const String adminUsers = '/admin/users';
+  static String adminUserRole(String uid) => '/admin/users/$uid/role';
+  static const String adminBiometricRequests = '/admin/biometrics/requests';
+  static String adminBiometricApprove(String userId) =>
+      '/admin/biometrics/requests/$userId/approve';
 }

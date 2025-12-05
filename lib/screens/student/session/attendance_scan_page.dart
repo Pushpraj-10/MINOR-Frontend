@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'package:frontend/api/api_client.dart';
 import 'package:frontend/services/biometric_service.dart';
 import 'package:frontend/repositories/attendance_repository.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 /// Flow (Option 2):
 /// 1) User scans QR → get `qrToken`
@@ -80,10 +80,22 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
             base64Encode(List.generate(16, (_) => Random().nextInt(256)));
         await BiometricService.signChallenge(test);
       } on PlatformException catch (e) {
-        _fail('Local key unusable: ${e.message ?? e.code}');
+        _fail(
+          'Local key unusable: ${e.message ?? e.code}',
+          reasons: const [
+            'Device biometrics were not verified successfully',
+            'Keys were invalidated after changing face or fingerprint data',
+          ],
+        );
         return;
       } catch (e) {
-        _fail('Local key unusable: $e');
+        _fail(
+          'Local key unusable: $e',
+          reasons: const [
+            'Secure hardware key could not be accessed',
+            'OS prevented the biometric prompt from completing',
+          ],
+        );
         return;
       }
 
@@ -114,16 +126,23 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
         return;
       }
 
-      final String? challenge = check['challenge'] as String?;
-      if (challenge == null) {
-        _fail('No challenge available. Please retry.');
+      String? activeChallenge = check['challenge'] as String?;
+      if (activeChallenge == null) {
+        _fail(
+          'No challenge available. Please retry.',
+          reasons: const [
+            'The QR token expired or was already used',
+            'Professor rotated the QR before you finished scanning',
+          ],
+        );
         return;
       }
 
       setState(() => _status = 'Authenticating...');
 
       // This triggers OS biometric prompt and signs via TEE private key
-      final signature = await BiometricService.signChallenge(challenge);
+      String activeSignature =
+          await BiometricService.signChallenge(activeChallenge);
 
       setState(() => _status = 'Verifying...');
 
@@ -131,8 +150,8 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       Map<String, dynamic> verifyResp;
       try {
         verifyResp = await repo.verifyChallenge(
-          challenge: challenge,
-          signature: signature,
+          challenge: activeChallenge,
+          signature: activeSignature,
           qrToken: qrToken,
         );
       } catch (e) {
@@ -142,9 +161,11 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           final String? c2 = check2['challenge'] as String?;
           if (c2 != null) {
             final sig2 = await BiometricService.signChallenge(c2);
+            activeChallenge = c2;
+            activeSignature = sig2;
             verifyResp = await repo.verifyChallenge(
-              challenge: c2,
-              signature: sig2,
+              challenge: activeChallenge,
+              signature: activeSignature,
               qrToken: qrToken,
             );
           } else {
@@ -160,39 +181,47 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
         if (verifyResp['revoked'] == true) {
           _info(
             'Device Key Revoked',
-            'Your device key was revoked on the server. Please re-register this device.',
+            withPossibleReasons(
+              'Your device key was revoked on the server. Please re-register this device.',
+              heading: 'Why this happens:',
+              reasons: const [
+                'An administrator rejected or revoked the registration',
+                'You attempted to use an outdated device key',
+              ],
+            ),
           );
           return;
         }
-        _fail(verifyResp['reason']?.toString() ?? 'Verification failed.');
+        _fail(
+          verifyResp['reason']?.toString() ?? 'Verification failed.',
+          reasons: const [
+            'The QR code was refreshed during verification',
+            'Device clock drifted too far from server time',
+          ],
+        );
+        return;
+      }
+      setState(() => _status = 'Attendance verified');
+
+      final attendanceError = verifyResp['attendanceError']?.toString();
+      if (attendanceError != null && attendanceError.isNotEmpty) {
+        _fail(
+          attendanceError,
+          reasons: const [
+            'Professor rotated the QR before marking could finish',
+            'The biometric proof was already consumed on the server',
+          ],
+        );
         return;
       }
 
-      setState(() => _status = 'Marking attendance...');
-
-      // Separate mark-present call (Option 2 contract)
-      String? studentUid;
-      try {
-        final me = await ApiClient.I.me();
-        studentUid = me['user']?['uid'] as String?;
-      } catch (_) {}
-
-      final mark = await repo.markPresent(
-        qrToken: qrToken,
-        studentUid: studentUid,
-        method: 'biometric',
+      final attendancePayload = verifyResp['attendance'];
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Check-in successful')),
       );
-
-      if (mark['ok'] == true) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Check-in successful')),
-        );
-        await Future.delayed(const Duration(milliseconds: 700));
-        if (mounted) Navigator.of(context).pop(mark);
-      } else {
-        _fail(mark['reason']?.toString() ?? 'Marking attendance failed.');
-      }
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (mounted) Navigator.of(context).pop(attendancePayload);
     } on PlatformException catch (e) {
       if (e.code == 'key_invalidated') {
         _info(
@@ -200,10 +229,28 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           'Your device biometrics changed. Please re-register your device key.',
         );
       } else {
-        _fail(e.message ?? e.code);
+        final message = formatErrorWithContext(
+          e,
+          action: 'complete biometric auth',
+          reasons: const [
+            'You dismissed the biometric prompt',
+            'Face or fingerprint sensor failed to read',
+            'OS blocked the prompt because device is not secured',
+          ],
+        );
+        _fail(message);
       }
     } catch (e) {
-      _fail(e.toString());
+      final message = formatErrorWithContext(
+        e,
+        action: 'process the QR scan',
+        reasons: const [
+          'QR token is invalid or already consumed',
+          'Device lost connectivity while verifying the challenge',
+          'Server session expired; ask the professor to refresh',
+        ],
+      );
+      _fail(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -214,13 +261,15 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
     }
   }
 
-  void _fail(String msg) {
+  void _fail(String msg, {List<String> reasons = const []}) {
     if (!mounted) return;
+    final display =
+        reasons.isEmpty ? msg : withPossibleReasons(msg, reasons: reasons);
     showDialog(
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Error'),
-        content: Text(msg),
+        content: Text(display),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))
         ],

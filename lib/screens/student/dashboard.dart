@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:convert';
 import 'package:frontend/services/biometric_service.dart';
 import 'package:flutter/services.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({Key? key}) : super(key: key);
@@ -31,9 +32,20 @@ class _StudentDashboardState extends State<StudentDashboard> {
         _name = (me['user']?['name'] as String?) ?? 'Student';
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      final message = formatErrorWithContext(
+        e,
+        action: 'load your profile',
+        reasons: const [
+          'Session expired, please log in again',
+          'Poor or no internet connectivity',
+          'Server is temporarily unavailable',
+        ],
+      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -93,12 +105,12 @@ class _StudentDashboardState extends State<StudentDashboard> {
                   _buildTile(context, Icons.shopping_cart, "Buy/Sell"),
                   _buildTile(context, Icons.contacts, "Contacts"),
                   _buildTile(context, Icons.search, "Found/Lost"),
-                  _buildTile(context, Icons.help_outline, "Contact\nDevelopers"),
+                  _buildTile(
+                      context, Icons.help_outline, "Contact\nDevelopers"),
                   _buildTile(context, Icons.calendar_today, "Attendance"),
                 ],
               ),
             ),
-
             Container(
               margin: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -162,8 +174,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
             Text(
               label,
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  color: Colors.black87, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -205,7 +217,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
           break;
 
         default:
-          await _error(context, "Unknown biometric status: $status");
+          await _error(
+            context,
+            withPossibleReasons(
+              'Unknown biometric status: $status',
+              reasons: const [
+                'App is outdated and does not recognize the new status',
+                'Server returned malformed data',
+              ],
+            ),
+          );
       }
     } catch (e) {
       Navigator.of(context).pop();
@@ -312,8 +333,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             'Your key is registered but not approved yet. Please wait.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK')),
+              onPressed: () => Navigator.pop(context), child: const Text('OK')),
         ],
       ),
     );
@@ -324,8 +344,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Re-register Device'),
-        content: const Text(
-            'Your biometric key was revoked. Register again?'),
+        content: const Text('Your biometric key was revoked. Register again?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -350,8 +369,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
         content: Text(msg),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'))
+              onPressed: () => Navigator.pop(context), child: const Text('OK'))
         ],
       ),
     );

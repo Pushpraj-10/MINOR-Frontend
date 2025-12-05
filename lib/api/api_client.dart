@@ -276,12 +276,16 @@ class ApiClient {
     String? studentUid,
     String? sessionId,
     String? method,
+    String? challenge,
+    String? signature,
   }) async {
     final body = {};
     if (studentUid != null) body['studentUid'] = studentUid;
     if (qrToken != null) body['qrToken'] = qrToken;
     if (sessionId != null) body['sessionId'] = sessionId;
     if (method != null) body['method'] = method;
+    if (challenge != null) body['challenge'] = challenge;
+    if (signature != null) body['signature'] = signature;
 
     final res = await _dio.post(ApiConfig.attendanceMarkPresent, data: body);
     return Map<String, dynamic>.from(res.data as Map);
@@ -300,5 +304,53 @@ class ApiClient {
   Future<Map<String, dynamic>> getSessionAttendance(String sessionId) async {
     final res = await _dio.get(ApiConfig.professorSessionAttendance(sessionId));
     return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getAdminUsers({
+    String? role,
+    String? search,
+    int? page,
+    int? pageSize,
+  }) async {
+    final params = <String, dynamic>{};
+    if (role != null && role.isNotEmpty) params['role'] = role;
+    if (search != null && search.isNotEmpty) params['search'] = search;
+    if (page != null) params['page'] = page;
+    if (pageSize != null) params['pageSize'] = pageSize;
+    final res = await _dio.get(ApiConfig.adminUsers, queryParameters: params);
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateUserRole({
+    required String uid,
+    required String role,
+  }) async {
+    final res = await _dio.patch(
+      ApiConfig.adminUserRole(uid),
+      data: {'role': role},
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getBiometricRequests({
+    String? status,
+    String? search,
+    int? page,
+    int? pageSize,
+  }) async {
+    final params = <String, dynamic>{};
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    if (search != null && search.isNotEmpty) params['search'] = search;
+    if (page != null) params['page'] = page;
+    if (pageSize != null) params['pageSize'] = pageSize;
+    final res = await _dio.get(
+      ApiConfig.adminBiometricRequests,
+      queryParameters: params,
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<void> approveBiometricRequest(String userId) async {
+    await _dio.post(ApiConfig.adminBiometricApprove(userId));
   }
 }

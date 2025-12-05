@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
-import 'package:dio/dio.dart' show DioException;
 import 'package:frontend/api/api_client.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/api/realtime.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class CreatePassPage extends StatefulWidget {
   const CreatePassPage({super.key});
@@ -178,16 +178,18 @@ class _CreatePassPageState extends State<CreatePassPage> {
       setState(() {
         _isSubmitting = false;
       });
-      String msg = 'Failed to create session';
-      if (e is DioException) {
-        try {
-          final resp = e.response?.data;
-          if (resp != null) msg = resp.toString();
-        } catch (_) {}
-      } else {
-        msg = e.toString();
-      }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      final message = formatErrorWithContext(
+        e,
+        action: 'create the session',
+        reasons: const [
+          'Network dropped while submitting the form',
+          'Duration or payload was considered invalid by the server',
+          'You already have an active session with the same title',
+        ],
+        fallback: 'Failed to create session',
+      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

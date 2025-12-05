@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/api/api_client.dart';
+import 'package:frontend/utils/error_utils.dart';
 
 class SessionAttendancePage extends StatefulWidget {
   final String sessionId;
@@ -43,9 +44,18 @@ class _SessionAttendancePageState extends State<SessionAttendancePage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load attendance: $e')),
+        final message = formatErrorWithContext(
+          e,
+          action: 'load session attendance',
+          reasons: const [
+            'Session ID is invalid or expired',
+            'Server rejected the request due to missing permissions',
+            'Network connection timed out while fetching data',
+          ],
+          fallback: 'Failed to load attendance',
         );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     }
   }
