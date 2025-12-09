@@ -8,7 +8,9 @@ import 'package:frontend/screens/student/dashboard.dart';
 import 'package:frontend/screens/professor/session/sessionCreation.dart';
 import 'package:frontend/screens/professor/sessions/sessions_list_page.dart';
 import 'package:frontend/screens/professor/sessions/session_attendance_page.dart';
-import 'package:frontend/screens/student/session/attendance_scan_page.dart';
+import 'package:frontend/screens/student/attendance/attendance_page.dart';
+import 'package:frontend/screens/student/attendance/attendance_dashboard.dart';
+import 'package:frontend/screens/student/attendance/leave_page.dart';
 import 'package:frontend/screens/admin/manage_users_screen.dart';
 import 'package:frontend/screens/admin/edit_user_role_screen.dart';
 import 'package:frontend/screens/admin/biometric_requests_screen.dart';
@@ -56,7 +58,19 @@ final GoRouter router = GoRouter(
     GoRoute(
       path: '/student/attendance',
       builder: (BuildContext context, GoRouterState state) {
-        return const AttendanceScanPage();
+        return const AttendanceDashboard();
+      },
+    ),
+    GoRoute(
+      path: '/student/attendance/scan',
+      builder: (BuildContext context, GoRouterState state) {
+        return const AttendancePage();
+      },
+    ),
+    GoRoute(
+      path: '/student/attendance/leave',
+      builder: (BuildContext context, GoRouterState state) {
+        return const LeavePage();
       },
     ),
     // Face verification route removed (face-embedding flow archived)

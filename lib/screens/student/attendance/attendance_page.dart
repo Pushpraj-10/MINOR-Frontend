@@ -3,7 +3,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:go_router/go_router.dart';
 
+import 'package:frontend/api/api_client.dart';
 import 'package:frontend/services/biometric_service.dart';
 import 'package:frontend/repositories/attendance_repository.dart';
 import 'package:frontend/utils/error_utils.dart';
@@ -15,16 +17,17 @@ import 'package:frontend/utils/error_utils.dart';
 /// 4) Native signChallenge(challenge) → signatureB64
 /// 5) POST /attendance/verify-challenge (verify only)
 /// 6) If verified → POST /attendance/mark-present
-class AttendanceScanPage extends StatefulWidget {
-  const AttendanceScanPage({Key? key}) : super(key: key);
+class AttendancePage extends StatefulWidget {
+  const AttendancePage({Key? key}) : super(key: key);
 
   @override
-  State<AttendanceScanPage> createState() => _AttendanceScanPageState();
+  State<AttendancePage> createState() => _AttendanceScanPageState();
 }
 
-class _AttendanceScanPageState extends State<AttendanceScanPage> {
+class _AttendanceScanPageState extends State<AttendancePage> {
   late final MobileScannerController _scanner;
   bool _processing = false;
+  bool _handlingKeyInvalidation = false;
   String _status = 'Align the QR code in the frame';
 
   @override
@@ -80,16 +83,20 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
             base64Encode(List.generate(16, (_) => Random().nextInt(256)));
         await BiometricService.signChallenge(test);
       } on PlatformException catch (e) {
-        _fail(
-          'Local key unusable: ${e.message ?? e.code}',
-          reasons: const [
-            'Device biometrics were not verified successfully',
-            'Keys were invalidated after changing face or fingerprint data',
-          ],
-        );
+        if (e.code == 'key_invalidated') {
+          await _handleKeyInvalidated();
+        } else {
+          await _fail(
+            'Local key unusable: ${e.message ?? e.code}',
+            reasons: const [
+              'Device biometrics were not verified successfully',
+              'Keys were invalidated after changing face or fingerprint data',
+            ],
+          );
+        }
         return;
       } catch (e) {
-        _fail(
+        await _fail(
           'Local key unusable: $e',
           reasons: const [
             'Secure hardware key could not be accessed',
@@ -110,7 +117,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       if (serverHash == null || serverHash != clientHash) {
         // Not registered or mismatch → register and exit; admin must approve
         await repo.registerKey(publicKeyPem: pem);
-        _info(
+        await _info(
           'Registration Sent',
           'Your device public key has been sent for admin approval. '
               'Please try again after approval.',
@@ -119,7 +126,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       }
 
       if (status != 'approved') {
-        _info(
+        await _info(
           'Awaiting Approval',
           'Your device is registered but not yet approved. Please wait for admin approval.',
         );
@@ -128,7 +135,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
 
       String? activeChallenge = check['challenge'] as String?;
       if (activeChallenge == null) {
-        _fail(
+        await _fail(
           'No challenge available. Please retry.',
           reasons: const [
             'The QR token expired or was already used',
@@ -179,7 +186,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       final verified = verifyResp['verified'] as bool? ?? false;
       if (!verified) {
         if (verifyResp['revoked'] == true) {
-          _info(
+          await _info(
             'Device Key Revoked',
             withPossibleReasons(
               'Your device key was revoked on the server. Please re-register this device.',
@@ -192,7 +199,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           );
           return;
         }
-        _fail(
+        await _fail(
           verifyResp['reason']?.toString() ?? 'Verification failed.',
           reasons: const [
             'The QR code was refreshed during verification',
@@ -205,7 +212,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
 
       final attendanceError = verifyResp['attendanceError']?.toString();
       if (attendanceError != null && attendanceError.isNotEmpty) {
-        _fail(
+        await _fail(
           attendanceError,
           reasons: const [
             'Professor rotated the QR before marking could finish',
@@ -224,10 +231,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
       if (mounted) Navigator.of(context).pop(attendancePayload);
     } on PlatformException catch (e) {
       if (e.code == 'key_invalidated') {
-        _info(
-          'Device Key Invalidated',
-          'Your device biometrics changed. Please re-register your device key.',
-        );
+        await _handleKeyInvalidated();
       } else {
         final message = formatErrorWithContext(
           e,
@@ -238,7 +242,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
             'OS blocked the prompt because device is not secured',
           ],
         );
-        _fail(message);
+        await _fail(message);
       }
     } catch (e) {
       final message = formatErrorWithContext(
@@ -250,7 +254,7 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
           'Server session expired; ask the professor to refresh',
         ],
       );
-      _fail(message);
+      await _fail(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -261,11 +265,11 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
     }
   }
 
-  void _fail(String msg, {List<String> reasons = const []}) {
+  Future<void> _fail(String msg, {List<String> reasons = const []}) async {
     if (!mounted) return;
     final display =
         reasons.isEmpty ? msg : withPossibleReasons(msg, reasons: reasons);
-    showDialog(
+    await showDialog(
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Error'),
@@ -277,9 +281,9 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
     );
   }
 
-  void _info(String title, String msg) {
+  Future<void> _info(String title, String msg) async {
     if (!mounted) return;
-    showDialog(
+    await showDialog(
       context: context,
       builder: (c) => AlertDialog(
         title: Text(title),
@@ -289,6 +293,56 @@ class _AttendanceScanPageState extends State<AttendanceScanPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleKeyInvalidated() async {
+    if (_handlingKeyInvalidation || !mounted) return;
+    _handlingKeyInvalidation = true;
+
+    final bool proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (c) => AlertDialog(
+            title: const Text('Biometric Reset Needed'),
+            content: const Text(
+              'Your device biometrics changed. Tap OK to clear the saved key and return to the dashboard.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (proceed) {
+      await _resetBiometricStateAndExit();
+    } else {
+      _handlingKeyInvalidation = false;
+    }
+  }
+
+  Future<void> _resetBiometricStateAndExit() async {
+    try {
+      try {
+        await ApiClient.I.deleteBiometricKey();
+      } catch (err) {
+        debugPrint('Failed to delete biometric key: $err');
+      }
+      try {
+        await BiometricService.deleteLocalKey();
+      } catch (err) {
+        debugPrint('Failed to delete local biometric key: $err');
+      }
+
+      if (mounted) {
+        context.go('/student/dashboard');
+      }
+    } finally {
+      _handlingKeyInvalidation = false;
+    }
   }
 
   @override

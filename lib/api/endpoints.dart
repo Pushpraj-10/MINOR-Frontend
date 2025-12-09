@@ -43,6 +43,8 @@ class ApiConfig {
   static const String attendanceVerifyChallenge =
       '/attendance/verify-challenge';
   static const String attendanceMarkPresent = '/attendance/mark-present';
+  static const String attendanceTakeLeave = '/attendance/take-leave';
+  static String attendanceGetStatics(String userId) => '/attendance/statistics/$userId';
 
   // Admin
   static const String adminUsers = '/admin/users';

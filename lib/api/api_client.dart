@@ -353,4 +353,26 @@ class ApiClient {
   Future<void> approveBiometricRequest(String userId) async {
     await _dio.post(ApiConfig.adminBiometricApprove(userId));
   }
+
+  Future<void> deleteBiometricKey() async {
+    await _dio.delete(ApiConfig.biometricsDeleteKey);
+  }
+
+  Future<void> getAttendanceStatics() async {}
+
+  Future<Map<String, dynamic>> takeLeave({
+    String? sessionId,
+    String? qrToken,
+    String? reason,
+    String? studentUid,
+  }) async {
+    final body = <String, dynamic>{};
+    if (sessionId != null) body['sessionId'] = sessionId;
+    if (qrToken != null) body['qrToken'] = qrToken;
+    if (reason != null) body['reason'] = reason;
+    if (studentUid != null) body['studentUid'] = studentUid;
+
+    final res = await _dio.post(ApiConfig.attendanceTakeLeave, data: body);
+    return Map<String, dynamic>.from(res.data as Map);
+  }
 }

@@ -274,9 +274,11 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
           children: [
             Chip(
               label: Text(role.toUpperCase()),
-              backgroundColor: _roleColor(role).withOpacity(0.2),
-              labelStyle: TextStyle(
-                  color: _roleColor(role), fontWeight: FontWeight.bold),
+              backgroundColor: _roleColor(role).withOpacity(0.7),
+              labelStyle: const TextStyle(
+                color: Colors.black87,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             IconButton(
               icon: const Icon(Icons.edit, color: Colors.white70),
@@ -291,11 +293,11 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   Color _roleColor(String role) {
     switch (role) {
       case 'admin':
-        return Colors.purpleAccent;
+        return const Color.fromARGB(255, 72, 255, 0);
       case 'professor':
-        return Colors.lightBlueAccent;
+        return const Color.fromARGB(255, 21, 255, 243);
       default:
-        return Colors.greenAccent;
+        return const Color.fromARGB(255, 229, 255, 0);
     }
   }
 }

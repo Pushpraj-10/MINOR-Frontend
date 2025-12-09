@@ -105,8 +105,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                   _buildTile(context, Icons.shopping_cart, "Buy/Sell"),
                   _buildTile(context, Icons.contacts, "Contacts"),
                   _buildTile(context, Icons.search, "Found/Lost"),
-                  _buildTile(
-                      context, Icons.help_outline, "Contact\nDevelopers"),
+                  _buildTile(context, Icons.help_outline, "Contact\nDevelopers"),
                   _buildTile(context, Icons.calendar_today, "Attendance"),
                 ],
               ),

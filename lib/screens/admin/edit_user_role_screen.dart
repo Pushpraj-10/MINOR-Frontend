@@ -79,12 +79,13 @@ class _EditUserRoleScreenState extends State<EditUserRoleScreen> {
               children: _roles
                   .map(
                     (role) => ChoiceChip(
+                      backgroundColor: const Color.fromARGB(255, 47, 47, 47),
                       label: Text(role.toUpperCase()),
                       selected: _role == role,
                       selectedColor: Colors.blueAccent,
                       onSelected: (_) => setState(() => _role = role),
                       labelStyle: TextStyle(
-                        color: _role == role ? Colors.white : Colors.white70,
+                        color: _role == role ? const Color.fromARGB(255, 46, 46, 46) : const Color.fromARGB(179, 183, 183, 183),
                         fontWeight: FontWeight.bold,
                       ),
                     ),
