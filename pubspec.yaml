@@ -29,6 +29,7 @@ dependencies:
   socket_io_client: ^2.0.3
   local_auth: ^2.1.0
   crypto: ^3.0.2
+  file_picker: ^8.1.2
 
 dev_dependencies:
   flutter_test:

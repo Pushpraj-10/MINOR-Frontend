@@ -44,7 +44,8 @@ class ApiConfig {
       '/attendance/verify-challenge';
   static const String attendanceMarkPresent = '/attendance/mark-present';
   static const String attendanceTakeLeave = '/attendance/take-leave';
-  static String attendanceGetStatics(String userId) => '/attendance/statistics/$userId';
+  static String attendanceGetStatics(String userId) =>
+      '/attendance/statistics/$userId';
 
   // Admin
   static const String adminUsers = '/admin/users';
@@ -52,4 +53,8 @@ class ApiConfig {
   static const String adminBiometricRequests = '/admin/biometrics/requests';
   static String adminBiometricApprove(String userId) =>
       '/admin/biometrics/requests/$userId/approve';
+  static const String adminBulkUsersPreview = '/admin/users/bulk/preview';
+  static const String adminBulkUsersImport = '/admin/users/bulk/import';
+  static const String leaveRequest = '/leave/request';
+  static const String leaveMy = '/leave/my';
 }

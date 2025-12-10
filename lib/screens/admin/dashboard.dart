@@ -72,58 +72,65 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const SizedBox(width: 8),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                children: [
-                  _buildTile(context, Icons.people, 'Users'),
-                  _buildTile(context, Icons.event_available, 'Sessions'),
-                  _buildTile(context, Icons.list_alt, 'Reports'),
-                  _buildTile(context, Icons.settings, 'Settings'),
-                  _buildTile(context, Icons.security, 'Roles'),
-                  _buildTile(context, Icons.analytics, 'Logs'),
-                  _buildTile(context, Icons.manage_accounts, 'Manage User',
-                      route: '/admin/manage-users'),
-                  _buildTile(
-                      context, Icons.fingerprint, 'Manage Biometrics Requests',
-                      route: '/admin/biometric-requests'),
-                ],
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: GridView.count(
+                  crossAxisCount: 3,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  children: [
+                    _buildTile(context, Icons.people, 'Users'),
+                    _buildTile(context, Icons.event_available, 'Sessions'),
+                    _buildTile(context, Icons.list_alt, 'Reports'),
+                    _buildTile(context, Icons.settings, 'Settings'),
+                    _buildTile(context, Icons.security, 'Roles'),
+                    _buildTile(context, Icons.analytics, 'Logs'),
+                    _buildTile(context, Icons.manage_accounts, 'Manage User',
+                        route: '/admin/manage-users'),
+                    _buildTile(context, Icons.fingerprint,
+                        'Manage Biometrics Requests',
+                        route: '/admin/biometric-requests'),
+                    _buildTile(context, Icons.cloud_upload, 'Bulk Import Users',
+                        route: '/admin/bulk-users'),
+                  ],
+                ),
               ),
-            ),
-            Container(
-              margin: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(8),
+              Container(
+                margin: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Admin Panel',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Use the tiles above to manage users, sessions and biometric approval requests.',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
               ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Admin Panel',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Use the tiles above to manage users, sessions and biometric approval requests.',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import 'package:dio/dio.dart';
@@ -354,11 +355,50 @@ class ApiClient {
     await _dio.post(ApiConfig.adminBiometricApprove(userId));
   }
 
+  Future<Map<String, dynamic>> adminBulkPreviewUsers({
+    required String fileName,
+    String? filePath,
+    List<int>? bytes,
+  }) async {
+    MultipartFile file;
+    if (filePath != null) {
+      file = await MultipartFile.fromFile(filePath, filename: fileName);
+    } else if (bytes != null) {
+      file = MultipartFile.fromBytes(bytes, filename: fileName);
+    } else {
+      throw ArgumentError('filePath_or_bytes_required');
+    }
+
+    final form = FormData.fromMap({'file': file});
+    final res = await _dio.post(ApiConfig.adminBulkUsersPreview, data: form);
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> adminBulkImportUsers({
+    required String uploadId,
+    required Map<String, String> mapping,
+  }) async {
+    final res = await _dio.post(
+      ApiConfig.adminBulkUsersImport,
+      data: {
+        'uploadId': uploadId,
+        'mapping': mapping,
+      },
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
   Future<void> deleteBiometricKey() async {
     await _dio.delete(ApiConfig.biometricsDeleteKey);
   }
 
   Future<void> getAttendanceStatics() async {}
+
+  Future<Map<String, dynamic>> getAttendanceStats(
+      {String userId = 'me'}) async {
+    final res = await _dio.get(ApiConfig.attendanceGetStatics(userId));
+    return Map<String, dynamic>.from(res.data as Map);
+  }
 
   Future<Map<String, dynamic>> takeLeave({
     String? sessionId,
@@ -374,5 +414,25 @@ class ApiClient {
 
     final res = await _dio.post(ApiConfig.attendanceTakeLeave, data: body);
     return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> requestLeaveRange({
+    required DateTime startDate,
+    required DateTime endDate,
+    required String reason,
+  }) async {
+    final res = await _dio.post(ApiConfig.leaveRequest, data: {
+      'startDate': startDate.toIso8601String(),
+      'endDate': endDate.toIso8601String(),
+      'reason': reason,
+    });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> listMyLeaves() async {
+    final res = await _dio.get(ApiConfig.leaveMy);
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final leaves = (data['leaves'] as List?) ?? [];
+    return leaves.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 }

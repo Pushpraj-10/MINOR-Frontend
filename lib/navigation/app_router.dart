@@ -15,6 +15,7 @@ import 'package:frontend/screens/admin/manage_users_screen.dart';
 import 'package:frontend/screens/admin/edit_user_role_screen.dart';
 import 'package:frontend/screens/admin/biometric_requests_screen.dart';
 import 'package:frontend/screens/admin/dashboard.dart';
+import 'package:frontend/screens/admin/bulk_users.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -105,6 +106,12 @@ final GoRouter router = GoRouter(
       path: '/admin/biometric-requests',
       builder: (BuildContext context, GoRouterState state) {
         return const BiometricRequestsScreen();
+      },
+    ),
+    GoRoute(
+      path: '/admin/bulk-users',
+      builder: (BuildContext context, GoRouterState state) {
+        return const BulkUsersScreen();
       },
     ),
   ],

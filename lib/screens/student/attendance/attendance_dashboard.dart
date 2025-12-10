@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/api/api_client.dart';
 import 'package:go_router/go_router.dart';
 
 /// Student attendance dashboard with three tabs:
@@ -31,12 +32,14 @@ class AttendanceDashboard extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
-          children: [
-            _MarkAttendanceTab(),
-            _TakeLeaveTab(),
-            _RecordsTab(),
-          ],
+        body: SafeArea(
+          child: const TabBarView(
+            children: [
+              _MarkAttendanceTab(),
+              _TakeLeaveTab(),
+              _RecordsTab(),
+            ],
+          ),
         ),
       ),
     );
@@ -121,27 +124,162 @@ class _TakeLeaveTab extends StatelessWidget {
   }
 }
 
-class _RecordsTab extends StatelessWidget {
+class _RecordsTab extends StatefulWidget {
   const _RecordsTab();
 
   @override
+  State<_RecordsTab> createState() => _RecordsTabState();
+}
+
+class _RecordsTabState extends State<_RecordsTab> {
+  Map<String, dynamic>? _stats;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final res = await ApiClient.I.getAttendanceStats();
+      if (!mounted) return;
+      setState(() {
+        _stats = res;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
-            'Attendance Records',
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Failed to load stats', style: TextStyle(color: Colors.white)),
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _load,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1f6feb)),
+              child: const Text('Retry'),
+            )
+          ],
+        ),
+      );
+    }
+
+    final stats = _stats ?? {};
+    final percent = (stats['attendancePercent'] as num?)?.toDouble() ?? 0.0;
+    final attended = (stats['attended'] as num?)?.toInt() ?? 0;
+    final missed = (stats['missed'] as num?)?.toInt() ?? 0;
+    final leave = (stats['leave'] as num?)?.toInt() ?? 0;
+    final total = (stats['totalSessions'] as num?)?.toInt() ?? 0;
+    final missedSessions =
+        (stats['missedSessions'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Attendance %',
+                      style: TextStyle(color: Colors.white70)),
+                  Text(
+                    '${percent.toStringAsFixed(1)}%',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('Total: $total',
+                      style: const TextStyle(color: Colors.white70)),
+                  Text('Attended: $attended',
+                      style: const TextStyle(color: Colors.white70)),
+                  Text('Leave: $leave',
+                      style: const TextStyle(color: Colors.white70)),
+                  Text('Missed: $missed',
+                      style: const TextStyle(color: Colors.white70)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Missed Sessions',
             style: TextStyle(
                 color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 8),
-          Text(
-            'Attendance statistics will appear here. This section will be wired to backend data once available.',
-            style: TextStyle(color: Colors.white70),
-          ),
+          const SizedBox(height: 8),
+          if (missedSessions.isEmpty)
+            const Text('No missed sessions 🎉',
+                style: TextStyle(color: Colors.white70))
+          else
+            ...missedSessions.map((m) => _missedTile(m)).toList(),
         ],
+      ),
+    );
+  }
+
+  Widget _missedTile(Map<String, dynamic> m) {
+    final title = (m['title'] as String?)?.isNotEmpty == true
+        ? m['title'] as String
+        : 'Session';
+    final sessionId = m['sessionId']?.toString() ?? '';
+    final prof = m['professorUid']?.toString() ?? '';
+    final expiredAt = m['expiredAt']?.toString();
+
+    return Card(
+      color: const Color(0xFF1E1E1E),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(title,
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Session: $sessionId',
+                style: const TextStyle(color: Colors.white70)),
+            if (prof.isNotEmpty)
+              Text('Professor: $prof',
+                  style: const TextStyle(color: Colors.white54)),
+            if (expiredAt != null)
+              Text('Expired: $expiredAt',
+                  style: const TextStyle(color: Colors.white54)),
+          ],
+        ),
       ),
     );
   }
