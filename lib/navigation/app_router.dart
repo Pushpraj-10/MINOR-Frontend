@@ -18,6 +18,8 @@ import 'package:frontend/screens/admin/dashboard.dart';
 import 'package:frontend/screens/professor/attendance-record/attendance_records.dart';
 import 'package:frontend/screens/professor/attendance-record/leave_requests.dart';
 import 'package:frontend/screens/admin/bulk_users.dart';
+import 'package:frontend/screens/admin/reports_page.dart';
+import 'package:frontend/screens/professor/reports_page.dart';
 
 final GoRouter router = GoRouter(
   errorBuilder: (context, state) => ErrorScreen(error: state.error),
@@ -126,6 +128,18 @@ final GoRouter router = GoRouter(
       path: '/admin/bulk-users',
       builder: (BuildContext context, GoRouterState state) {
         return const BulkUsersScreen();
+      },
+    ),
+    GoRoute(
+      path: '/admin/reports',
+      builder: (BuildContext context, GoRouterState state) {
+        return const AdminReportsPage();
+      },
+    ),
+    GoRoute(
+      path: '/professor/reports',
+      builder: (BuildContext context, GoRouterState state) {
+        return const ProfessorReportsPage();
       },
     ),
   ],

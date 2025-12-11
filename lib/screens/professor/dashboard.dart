@@ -108,7 +108,7 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
                   _buildDashboardTile(context, Icons.contacts, "Contacts"),
                   _buildDashboardTile(context, Icons.search, "Found/Lost"),
                   _buildDashboardTile(
-                      context, Icons.help_outline, "Contact\nDevelopers"),
+                      context, Icons.list_alt, "Monthly Reports"),
                   _buildDashboardTile(context, Icons.calendar_today, "Session"),
                   _buildDashboardTile(context, Icons.list_alt, "My Sessions"),
                   _buildDashboardTile(
@@ -179,6 +179,8 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
           context.push('/professor/attendance-records');
         } else if (label == 'Leave Requests') {
           context.push('/professor/leave-requests');
+        } else if (label == 'Monthly Reports') {
+          context.push('/professor/reports');
         }
       },
       child: Container(

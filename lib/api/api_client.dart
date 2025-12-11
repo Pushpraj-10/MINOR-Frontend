@@ -106,6 +106,26 @@ class ApiClient {
 
   final Dio _dio;
   final CookieJar _cookieJar = CookieJar();
+
+  // Fetch raw CSV from a given path with optional query params
+  Future<String> getCsv(String path, {Map<String, dynamic>? query}) async {
+    final dio = _dio; // assume _dio is the configured Dio instance
+    final resp = await dio.get(path,
+        queryParameters: query,
+        options: Options(responseType: ResponseType.plain));
+    if (resp.statusCode != 200) {
+      throw DioException(
+        requestOptions: resp.requestOptions,
+        response: resp,
+        error: 'csv_fetch_failed',
+      );
+    }
+    final data = resp.data;
+    if (data is String) return data;
+    if (data is List<int>) return String.fromCharCodes(data);
+    return data?.toString() ?? '';
+  }
+
   String? _accessToken;
 
   void setAccessToken(String? token) {

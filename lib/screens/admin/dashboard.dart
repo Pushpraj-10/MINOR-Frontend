@@ -90,7 +90,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   children: [
                     _buildTile(context, Icons.people, 'Users'),
                     _buildTile(context, Icons.event_available, 'Sessions'),
-                    _buildTile(context, Icons.list_alt, 'Reports'),
+                    _buildTile(context, Icons.list_alt, 'Reports',
+                        route: '/admin/reports'),
                     _buildTile(context, Icons.settings, 'Settings'),
                     _buildTile(context, Icons.security, 'Roles'),
                     _buildTile(context, Icons.analytics, 'Logs'),
