@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/api/api_client.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
 
 class AdminReportsPage extends StatefulWidget {
   const AdminReportsPage({Key? key}) : super(key: key);
@@ -26,34 +29,111 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
 
   Future<void> _pickMonth() async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    int tempYear = _selectedMonth.year;
+    int tempMonth = _selectedMonth.month;
+    await showModalBottomSheet(
       context: context,
-      initialDate: _selectedMonth,
-      firstDate: DateTime(now.year - 3, 1),
-      lastDate: DateTime(now.year, now.month, 28),
-      helpText: 'Select Any Day In Month',
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF0f1d3a),
-              surface: Color(0xFF1E1E1E),
-              onSurface: Colors.white,
-            ),
-            dialogBackgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (context) {
+        return SizedBox(
+          height: 300,
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              const Text('Select Month',
+                  style: TextStyle(color: Colors.white, fontSize: 18)),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: 12,
+                        itemBuilder: (ctx, i) {
+                          final month = i + 1;
+                          final selected = month == tempMonth;
+                          return ListTile(
+                            dense: true,
+                            title: Text(
+                              DateFormat('MMMM')
+                                  .format(DateTime(2000, month, 1)),
+                              style: TextStyle(
+                                color: selected ? Colors.white : Colors.white70,
+                                fontWeight: selected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            onTap: () {
+                              tempMonth = month;
+                              setState(() {});
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: 4,
+                        itemBuilder: (ctx, i) {
+                          final year = now.year - 3 + i;
+                          final selected = year == tempYear;
+                          return ListTile(
+                            dense: true,
+                            title: Text(
+                              '$year',
+                              style: TextStyle(
+                                color: selected ? Colors.white : Colors.white70,
+                                fontWeight: selected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            onTap: () {
+                              tempYear = year;
+                              setState(() {});
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFDCC8FF),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _selectedMonth = DateTime(tempYear, tempMonth, 1);
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Apply',
+                        style: TextStyle(color: Colors.black)),
+                  ),
+                ),
+              )
+            ],
           ),
-          child: child!,
         );
       },
     );
-    if (picked != null) {
-      setState(() {
-        _selectedMonth = DateTime(picked.year, picked.month, 1);
-      });
-    }
   }
 
   Future<void> _fetchCsv() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _csv = null;
@@ -66,6 +146,7 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
       };
       final res =
           await ApiClient.I.getCsv('/admin/reports/monthly', query: params);
+      if (!mounted) return;
       setState(() {
         _csv = res;
         _rows = _parseCsv(res);
@@ -75,16 +156,33 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
         SnackBar(content: Text('Failed to load report: $e')),
       );
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
+      }
     }
   }
 
   List<List<String>> _parseCsv(String csv) {
     final lines = csv.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    return lines.map((l) => l.split(',')).toList();
+    final rows = lines.map((l) => l.split(',')).toList();
+    // Ensure at least header with 3 columns
+    if (rows.isEmpty)
+      return [
+        ['student_name', 'days_present', 'days_absent']
+      ];
+    final header = rows.first;
+    if (header.length < 3) {
+      rows[0] = ['student_name', 'days_present', 'days_absent'];
+    }
+    return rows.map((r) {
+      final a = List<String>.from(r);
+      while (a.length < 3) {
+        a.add('');
+      }
+      return a.take(3).toList();
+    }).toList();
   }
 
   @override
@@ -102,6 +200,11 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _isLoading ? null : _fetchCsv,
           ),
+          IconButton(
+            icon: const Icon(Icons.download, color: Colors.white),
+            tooltip: 'Download CSV',
+            onPressed: (_csv == null || _isLoading) ? null : _downloadCsv,
+          ),
         ],
       ),
       body: Column(
@@ -110,7 +213,7 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _rows.isEmpty
+                : (_rows.isEmpty || _rows.length == 1)
                     ? const Center(
                         child: Text('No data loaded',
                             style: TextStyle(color: Colors.white70)),
@@ -120,6 +223,39 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _downloadCsv() async {
+    try {
+      // Prefer the public Downloads folder where possible
+      Directory? targetDir;
+      if (Platform.isAndroid) {
+        final androidDownloads = Directory('/storage/emulated/0/Download');
+        if (await androidDownloads.exists()) {
+          targetDir = androidDownloads;
+        }
+      }
+      // Desktop platforms support getDownloadsDirectory()
+      targetDir ??= await getDownloadsDirectory();
+      // Fallback to app-specific storage
+      targetDir ??= (await getExternalStorageDirectory()) ??
+          await getApplicationDocumentsDirectory();
+      final fileName = _batchCtrl.text.trim().isNotEmpty
+          ? 'monthly_report_${monthParam}_${_batchCtrl.text.trim().replaceAll(' ', '_')}.csv'
+          : 'monthly_report_${monthParam}.csv';
+      final file = File('${targetDir.path}/$fileName');
+      final content = _csv ?? '';
+      await file.writeAsBytes(utf8.encode(content), flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved to ${file.path}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download failed: $e')),
+      );
+    }
   }
 
   Widget _buildHeader() {
@@ -134,43 +270,58 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: GestureDetector(
                   onTap: _pickMonth,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2A282C),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, color: Colors.white70),
-                        const SizedBox(width: 8),
-                        Text(
-                          DateFormat('MMMM yyyy').format(_selectedMonth),
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                  child: SizedBox(
+                    height: 48,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A282C),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              color: Colors.white70),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              DateFormat('MMMM yyyy').format(_selectedMonth),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: TextField(
-                  controller: _batchCtrl,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Batch (optional) e.g. CSE 2024',
-                    labelStyle: const TextStyle(color: Colors.white70),
-                    filled: true,
-                    fillColor: const Color(0xFF2A282C),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                child: SizedBox(
+                  height: 48,
+                  child: TextField(
+                    controller: _batchCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 12),
+                      labelText: 'Batch (optional) e.g. CSE 2024',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      filled: true,
+                      fillColor: const Color(0xFF2A282C),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
                 ),
               ),
@@ -199,9 +350,10 @@ class _AdminReportsPageState extends State<AdminReportsPage> {
   Widget _buildTable() {
     final header = _rows.first;
     final data = _rows.skip(1).toList();
-    return ListView.builder(
+    return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: data.length + 1,
+      separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         if (index == 0) {
           return _buildRow(header, isHeader: true);
