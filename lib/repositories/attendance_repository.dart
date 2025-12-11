@@ -48,4 +48,35 @@ class AttendanceRepository {
     );
     return Map<String, dynamic>.from(res);
   }
+
+  Future<Map<String, dynamic>> studentAttendanceRecords({
+    required String userId,
+    int? limit,
+    int? skip,
+  }) async {
+    final res = await ApiClient.I.getStudentAttendanceRecords(
+      userId: userId,
+      limit: limit,
+      skip: skip,
+    );
+    return res;
+  }
+
+  Future<List<Map<String, dynamic>>> listLeaves({String status = 'pending'}) {
+    return ApiClient.I.listAllLeaves(status: status == 'all' ? null : status);
+  }
+
+  Future<Map<String, dynamic>> reviewLeave({
+    required String leaveId,
+    required String decision,
+    String? note,
+  }) {
+    return ApiClient.I
+        .reviewLeave(leaveId: leaveId, status: decision, note: note);
+  }
+
+  Future<List<Map<String, dynamic>>> studentsByBatch(
+      {String? search, int? limit}) {
+    return ApiClient.I.getStudentsByBatch(search: search, limit: limit);
+  }
 }

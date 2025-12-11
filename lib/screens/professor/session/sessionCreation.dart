@@ -178,6 +178,14 @@ class _CreatePassPageState extends State<CreatePassPage> {
       setState(() {
         _isSubmitting = false;
       });
+      // Attempt to decode server error code for policy popups
+      final serverCode = _extractServerCode(e);
+      if (serverCode != null) {
+        final info = _mapServerCodeToMessage(serverCode);
+        _showPolicyDialog(context, info.title, info.message);
+        return;
+      }
+
       final message = formatErrorWithContext(
         e,
         action: 'create the session',
@@ -198,6 +206,7 @@ class _CreatePassPageState extends State<CreatePassPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF0f1d3a),
+        iconTheme: IconThemeData(color: Colors.white),
         title: const Text('Create a session',
             style: TextStyle(color: Colors.white)),
       ),
@@ -295,3 +304,84 @@ class _CreatePassPageState extends State<CreatePassPage> {
 
 // QR rendering is handled by `qr_flutter`'s QrImage which accepts a QrCode object.
 // We no longer use a local painter.
+
+// --- Helpers to present clear policy messages from backend error codes ---
+/// Best-effort extraction of a backend `code` field from common error shapes.
+String? _extractServerCode(Object error) {
+  try {
+    final dynamicErr = error as dynamic;
+    final resp = dynamicErr?.response;
+    final data = resp?.data ?? dynamicErr?.data;
+    if (data is Map && data['code'] is String) return data['code'] as String;
+    if (data is Map &&
+        data['error'] is Map &&
+        (data['error'] as Map)['code'] is String) {
+      return (data['error'] as Map)['code'] as String;
+    }
+    if (dynamicErr?.code is String) return dynamicErr.code as String;
+  } catch (_) {
+    // swallow
+  }
+  return null;
+}
+
+/// Simple container for dialog info (title + message)
+class PolicyInfo {
+  final String title;
+  final String message;
+  PolicyInfo(this.title, this.message);
+}
+
+/// Maps server code to a dialog title and body.
+PolicyInfo _mapServerCodeToMessage(String code) {
+  switch (code) {
+    case 'daily_session_limit_exceeded':
+      return PolicyInfo(
+        'Daily Limit Reached',
+        'You can only create two sessions per day: one between 9:00–13:00 and another between 14:00–18:00. Please try again tomorrow or adjust your schedule.',
+      );
+    case 'outside_allowed_window':
+      return PolicyInfo(
+        'Outside Allowed Time',
+        'Sessions may only be created between 9:00–13:00 or 14:00–18:00. Please create the session during one of these windows.',
+      );
+    case 'window_already_used':
+      return PolicyInfo(
+        'Window Already Used',
+        'You have already created a session in this window today. You can create at most one session in each window (9:00–13:00 and 14:00–18:00).',
+      );
+    case 'batch_missing':
+    case 'batch_required':
+      return PolicyInfo(
+        'No Batch Configured',
+        'You are not associated with any batch. Please set up your batch in the profile or contact an administrator.',
+      );
+    default:
+      return PolicyInfo(
+        'Session Creation Failed',
+        'The server rejected the request. Please verify details and try again.',
+      );
+  }
+}
+
+void _showPolicyDialog(BuildContext ctx, String title, String message) {
+  showDialog(
+    context: ctx,
+    builder: (context) {
+      return AlertDialog(
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF121212),
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      );
+    },
+  );
+}

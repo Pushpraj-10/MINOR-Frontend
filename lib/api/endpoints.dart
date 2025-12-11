@@ -46,6 +46,10 @@ class ApiConfig {
   static const String attendanceTakeLeave = '/attendance/take-leave';
   static String attendanceGetStatics(String userId) =>
       '/attendance/statistics/$userId';
+  static String attendanceUserRecords(String userId) =>
+      '/attendance/records/$userId';
+  static const String attendanceStudentsByBatch =
+      '/attendance/students/by-batch';
 
   // Admin
   static const String adminUsers = '/admin/users';
@@ -57,4 +61,8 @@ class ApiConfig {
   static const String adminBulkUsersImport = '/admin/users/bulk/import';
   static const String leaveRequest = '/leave/request';
   static const String leaveMy = '/leave/my';
+  static const String leaveAll = '/leave/all';
+  static String leaveDecision(String leaveId) => '/leave/$leaveId/decision';
+  // Check if a user has an approved active leave for current date
+  static const String leaveActive = '/leave/active';
 }

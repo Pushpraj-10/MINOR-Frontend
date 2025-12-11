@@ -400,6 +400,58 @@ class ApiClient {
     return Map<String, dynamic>.from(res.data as Map);
   }
 
+  Future<Map<String, dynamic>> getStudentAttendanceRecords({
+    required String userId,
+    int? limit,
+    int? skip,
+  }) async {
+    final params = <String, dynamic>{};
+    if (limit != null) params['limit'] = limit;
+    if (skip != null) params['skip'] = skip;
+    final res = await _dio.get(ApiConfig.attendanceUserRecords(userId),
+        queryParameters: params);
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> getStudentsByBatch(
+      {String? search, int? limit, String? batch}) async {
+    final params = <String, dynamic>{};
+    // Ensure batch is provided; if not, try to derive from current user
+    String? effectiveBatch = batch;
+    if (effectiveBatch == null || effectiveBatch.isEmpty) {
+      try {
+        final meRes = await me();
+        effectiveBatch = meRes['user']?['batch']?.toString();
+      } catch (_) {
+        // ignore, will fall through and let backend error be shown
+      }
+    }
+    if (effectiveBatch != null && effectiveBatch.isNotEmpty) {
+      params['batch'] = effectiveBatch;
+    }
+    if (search != null && search.isNotEmpty) params['search'] = search;
+    if (limit != null) params['limit'] = limit;
+    try {
+      final res = await _dio.get(ApiConfig.attendanceStudentsByBatch,
+          queryParameters: params);
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final students = (data['students'] as List?) ?? [];
+      return students.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } on DioException catch (e) {
+      final status = e.response?.statusCode ?? 0;
+      final data = e.response?.data;
+      final error = (data is Map && data['error'] is String)
+          ? data['error'] as String
+          : null;
+      if (status == 400 &&
+          (error == 'batch_missing' || error == 'batch_required')) {
+        // Surface a concise error string the UI can branch on
+        throw error!;
+      }
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> takeLeave({
     String? sessionId,
     String? qrToken,
@@ -434,5 +486,37 @@ class ApiClient {
     final data = Map<String, dynamic>.from(res.data as Map);
     final leaves = (data['leaves'] as List?) ?? [];
     return leaves.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> listAllLeaves({String? status}) async {
+    final params = <String, dynamic>{};
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    final res = await _dio.get(ApiConfig.leaveAll, queryParameters: params);
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final leaves = (data['leaves'] as List?) ?? [];
+    return leaves.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<Map<String, dynamic>> reviewLeave({
+    required String leaveId,
+    required String status,
+    String? note,
+  }) async {
+    final res = await _dio.post(
+      ApiConfig.leaveDecision(leaveId),
+      data: {
+        'status': status,
+        if (note != null) 'note': note,
+      },
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<bool> hasActiveApprovedLeave({String userId = 'me'}) async {
+    final res = await _dio.get(ApiConfig.leaveActive, queryParameters: {
+      'userId': userId,
+    });
+    final data = Map<String, dynamic>.from(res.data as Map);
+    return (data['active'] as bool?) ?? false;
   }
 }

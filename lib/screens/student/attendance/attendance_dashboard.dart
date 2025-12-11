@@ -46,8 +46,55 @@ class AttendanceDashboard extends StatelessWidget {
   }
 }
 
-class _MarkAttendanceTab extends StatelessWidget {
+class _MarkAttendanceTab extends StatefulWidget {
   const _MarkAttendanceTab();
+
+  @override
+  State<_MarkAttendanceTab> createState() => _MarkAttendanceTabState();
+}
+
+class _MarkAttendanceTabState extends State<_MarkAttendanceTab> {
+  bool _checking = false;
+
+  Future<void> _handleScanPressed(BuildContext context) async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      // Block scanning when student has any pending request
+      final leaves = await ApiClient.I.listMyLeaves();
+      final hasPending =
+          leaves.any((l) => (l['status'] as String?) == 'pending');
+      if (hasPending) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'You have a pending leave request. Scanning is disabled.')),
+        );
+        return;
+      }
+      // Block scanning when student has an approved active leave for today
+      final hasActiveApproved = await ApiClient.I.hasActiveApprovedLeave();
+      if (hasActiveApproved) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'You are currently on approved leave. Scanning is disabled.')),
+        );
+        return;
+      }
+      if (!mounted) return;
+      context.push('/student/attendance/scan');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to check leave status: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,8 +117,14 @@ class _MarkAttendanceTab extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => context.push('/student/attendance/scan'),
-              label: const Text('Open Scanner'),
+              onPressed: _checking ? null : () => _handleScanPressed(context),
+              label: _checking
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Open Scanner'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFB39DDB),
                 foregroundColor: Colors.white,
@@ -173,7 +226,8 @@ class _RecordsTabState extends State<_RecordsTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Failed to load stats', style: TextStyle(color: Colors.white)),
+            const Text('Failed to load stats',
+                style: TextStyle(color: Colors.white)),
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Colors.white70)),
             const SizedBox(height: 12),
@@ -203,50 +257,38 @@ class _RecordsTabState extends State<_RecordsTab> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _SummaryGrid(
+            percent: percent,
+            total: total,
+            attended: attended,
+            leave: leave,
+            missed: missed,
+          ),
+          const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Attendance %',
-                      style: TextStyle(color: Colors.white70)),
-                  Text(
-                    '${percent.toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ],
+              const Text(
+                'Missed Sessions',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text('Total: $total',
-                      style: const TextStyle(color: Colors.white70)),
-                  Text('Attended: $attended',
-                      style: const TextStyle(color: Colors.white70)),
-                  Text('Leave: $leave',
-                      style: const TextStyle(color: Colors.white70)),
-                  Text('Missed: $missed',
-                      style: const TextStyle(color: Colors.white70)),
-                ],
-              ),
+              TextButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh, color: Color(0xFFB39DDB)),
+                label: const Text('Refresh',
+                    style: TextStyle(color: Color(0xFFB39DDB))),
+              )
             ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Missed Sessions',
-            style: TextStyle(
-                color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           if (missedSessions.isEmpty)
             const Text('No missed sessions 🎉',
                 style: TextStyle(color: Colors.white70))
           else
-            ...missedSessions.map((m) => _missedTile(m)).toList(),
+            ...missedSessions.map((m) => _missedTile(m)),
         ],
       ),
     );
@@ -260,16 +302,26 @@ class _RecordsTabState extends State<_RecordsTab> {
     final prof = m['professorUid']?.toString() ?? '';
     final expiredAt = m['expiredAt']?.toString();
 
-    return Card(
-      color: const Color(0xFF1E1E1E),
-      margin: const EdgeInsets.only(bottom: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFB39DDB).withOpacity(0.18)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 4)),
+        ],
+      ),
       child: ListTile(
+        leading:
+            const Icon(Icons.warning_amber_rounded, color: Color(0xFFB39DDB)),
         title: Text(title,
             style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold)),
+                color: Colors.white, fontWeight: FontWeight.w600)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: 2),
             Text('Session: $sessionId',
                 style: const TextStyle(color: Colors.white70)),
             if (prof.isNotEmpty)
@@ -280,6 +332,209 @@ class _RecordsTabState extends State<_RecordsTab> {
                   style: const TextStyle(color: Colors.white54)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SummaryGrid extends StatelessWidget {
+  const _SummaryGrid({
+    required this.percent,
+    required this.total,
+    required this.attended,
+    required this.leave,
+    required this.missed,
+  });
+
+  final double percent;
+  final int total;
+  final int attended;
+  final int leave;
+  final int missed;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 380;
+        final cardWidth =
+            isNarrow ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _GaugeCard(
+              title: 'Attendance',
+              percent: percent.clamp(0, 100),
+              width: cardWidth,
+              accent: const Color(0xFFB39DDB),
+              subtitle: 'Target ≥ 75% to stay eligible',
+            ),
+            _StatCard(
+                title: 'Total Sessions',
+                value: '$total',
+                width: cardWidth,
+                icon: Icons.event_note),
+            _StatCard(
+                title: 'Attended',
+                value: '$attended',
+                width: cardWidth,
+                icon: Icons.check_circle_outline),
+            _StatCard(
+                title: 'Leave',
+                value: '$leave',
+                width: cardWidth,
+                icon: Icons.beach_access_outlined),
+            _StatCard(
+                title: 'Missed',
+                value: '$missed',
+                width: cardWidth,
+                icon: Icons.close_rounded),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.title,
+    required this.value,
+    this.accent,
+    this.width,
+    this.icon,
+  });
+
+  final String title;
+  final String value;
+  final Color? accent;
+  final double? width;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ?? const Color(0xFFB39DDB);
+    return Container(
+      width: width ?? 170,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.20)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (icon != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Icon(icon, color: color, size: 22),
+            ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title,
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 6),
+                Text(
+                  value,
+                  style: TextStyle(
+                      color: color, fontSize: 22, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GaugeCard extends StatelessWidget {
+  const _GaugeCard({
+    required this.title,
+    required this.percent,
+    required this.width,
+    this.subtitle,
+    this.accent,
+  });
+
+  final String title;
+  final double percent; // 0..100
+  final double width;
+  final String? subtitle;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ?? const Color(0xFFB39DDB);
+    final progress = (percent.clamp(0, 100)) / 100.0;
+
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.20)),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: 1.0,
+                  strokeWidth: 8,
+                  color: Colors.white12,
+                  backgroundColor: Colors.transparent,
+                ),
+                CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 8,
+                  color: color,
+                  backgroundColor: Colors.transparent,
+                ),
+                Text('${percent.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w600)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 6),
+                  Text(subtitle!,
+                      style:
+                          const TextStyle(color: Colors.white54, fontSize: 12)),
+                ],
+              ],
+            ),
+          )
+        ],
       ),
     );
   }

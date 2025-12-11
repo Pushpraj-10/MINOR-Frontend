@@ -111,6 +111,10 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
                       context, Icons.help_outline, "Contact\nDevelopers"),
                   _buildDashboardTile(context, Icons.calendar_today, "Session"),
                   _buildDashboardTile(context, Icons.list_alt, "My Sessions"),
+                  _buildDashboardTile(
+                      context, Icons.assignment, "Attendance Records"),
+                  _buildDashboardTile(
+                      context, Icons.assignment_turned_in, "Leave Requests"),
                 ],
               ),
             ),
@@ -164,9 +168,17 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
     return GestureDetector(
       onTap: () {
         if (label == 'Session') {
-          context.push('/professor/session');
+          if (_isWithinSessionHours()) {
+            context.push('/professor/session');
+          } else {
+            _showTimeRestrictionDialog(context);
+          }
         } else if (label == 'My Sessions') {
           context.push('/professor/sessions');
+        } else if (label == 'Attendance Records') {
+          context.push('/professor/attendance-records');
+        } else if (label == 'Leave Requests') {
+          context.push('/professor/leave-requests');
         }
       },
       child: Container(
@@ -187,6 +199,35 @@ class _ProfessorDashboardState extends State<ProfessorDashboard> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  bool _isWithinSessionHours() {
+    final now = DateTime.now();
+    // Define window between 09:00 and 18:00 local time
+    final start = DateTime(now.year, now.month, now.day, 9, 0);
+    final end = DateTime(now.year, now.month, now.day, 18, 0);
+    return now.isAfter(start) && now.isBefore(end);
+  }
+
+  void _showTimeRestrictionDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text('Session Unavailable',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Sessions can be created only between 9:00 AM and 6:00 PM. Please try again during that time window.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFB39DDB))),
+          ),
+        ],
       ),
     );
   }
