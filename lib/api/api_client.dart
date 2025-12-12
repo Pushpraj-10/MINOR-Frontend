@@ -539,4 +539,6 @@ class ApiClient {
     final data = Map<String, dynamic>.from(res.data as Map);
     return (data['active'] as bool?) ?? false;
   }
+
+  post(String s, {required Map<String, String?> data}) {}
 }

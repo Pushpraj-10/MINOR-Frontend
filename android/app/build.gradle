@@ -3,6 +3,8 @@ plugins {
     id "org.jetbrains.kotlin.android" version "2.2.20"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
+    // Apply Google Services plugin to enable Firebase on Android
+    id "com.google.gms.google-services"
 }
 
 android {
@@ -12,7 +14,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.frontend"
-        minSdk = 23  // Required by CameraX 1.5.0+
+        minSdkVersion = flutter.minSdkVersion  // Required by CameraX 1.5.0+
         targetSdk = 36
 
         versionCode = flutter.versionCode
@@ -37,4 +39,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Explicitly include AndroidX Biometric library for MainActivity usage
+    implementation "androidx.biometric:biometric:1.1.0"
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:frontend/api/api_client.dart';
 import 'package:frontend/utils/error_utils.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -11,71 +13,62 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  // A key to identify and validate the form
-  final _formKey = GlobalKey<FormState>();
-
-  // Controllers to manage the text in the input fields
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-
   // State variables for UI logic
-  bool _isPasswordVisible = false;
-  bool _isLoading = false;
+  bool _isGoogleLoading = false;
 
-  // Clean up the controllers when the widget is removed from the widget tree
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  /// Handles the login button press
-  Future<void> _login() async {
-    // Validate the form inputs
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        final email = _emailController.text.trim();
-        final password = _passwordController.text;
-        final res = await ApiClient.I.login(email: email, password: password);
-        final role = (res['user']?['role'] as String?) ?? 'student';
-        if (!mounted) return;
-        switch (role) {
-          case 'admin':
-            context.go('/admin/dashboard');
-            break;
-          case 'professor':
-            context.go('/professor/dashboard');
-            break;
-          default:
-            context.go('/student/dashboard');
-        }
-      } catch (e) {
-        if (!mounted) return;
-        final message = formatErrorWithContext(
-          e,
-          action: 'log in',
-          reasons: const [
-            'Email or password is incorrect',
-            'Your account is not approved for this role yet',
-            'Device is offline or the server is unreachable',
-          ],
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+  /// Google Sign-In using Firebase Auth, then backend login with ID token
+  Future<void> _loginWithGoogle() async {
+    if (_isGoogleLoading) return;
+    setState(() {
+      _isGoogleLoading = true;
+    });
+    try {
+      final googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) {
+        throw Exception('Sign-in cancelled');
       }
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      final idToken = await FirebaseAuth.instance.currentUser!.getIdToken();
 
-      setState(() {
-        _isLoading = false;
-      });
-
-      // navigation is handled above
+      final res = await ApiClient.I
+          .post('/auth/login/google', data: {'idToken': idToken});
+      final role = (res['user']?['role'] as String?) ?? 'student';
+      if (!mounted) return;
+      switch (role) {
+        case 'admin':
+          context.go('/admin/dashboard');
+          break;
+        case 'professor':
+          context.go('/professor/dashboard');
+          break;
+        default:
+          context.go('/student/dashboard');
+      }
+    } catch (e) {
+      // Log authentication failure to console for debugging
+      debugPrint('[Auth] Google sign-in failed: ' + e.toString());
+      if (!mounted) return;
+      final message = formatErrorWithContext(
+        e,
+        action: 'sign in with Google',
+        reasons: const [
+          'Google sign-in was cancelled or failed',
+          'Device is offline or the server is unreachable',
+          'Your account may not be allowed for this app',
+        ],
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
+    setState(() {
+      _isGoogleLoading = false;
+    });
   }
 
   @override
@@ -86,185 +79,70 @@ class _LoginPageState extends State<LoginPage> {
         backgroundColor: const Color(0xFF0f1d3a),
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Row(
-          children: [
-            Image.asset(
-              "assets/images/IIITNR_Logo.png",
-              height: 24,
-              width: 24,
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'Login',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-              ),
-            ),
-          ],
+        title: const Text(
+          'Sign In',
+          style: TextStyle(fontSize: 16, color: Colors.white),
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Form(
-            key: _formKey,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                const SizedBox(height: 80.0),
-                // Logo or App Name
+                // Logo
                 Image.asset(
                   'assets/images/IIITNR_Logo.png',
-                  width: 150,
-                  height: 150,
+                  width: 140,
+                  height: 140,
                 ),
-                const SizedBox(height: 48.0),
-                Text(
-                  'Welcome Back!',
+                const SizedBox(height: 32.0),
+                const Text(
+                  'Welcome',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 24,
+                  style: TextStyle(
+                    fontSize: 26,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 8.0),
-                Text(
-                  'Sign in to continue',
+                const Text(
+                  'Sign in with your Google account',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     color: Colors.white70,
                   ),
                 ),
-                const SizedBox(height: 48.0),
-
-                // Email Text Field
-                TextFormField(
-                  controller: _emailController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Email',
-                    labelStyle: const TextStyle(color: Colors.white70),
-                    prefixIcon:
-                        const Icon(Icons.email_outlined, color: Colors.white70),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.blue),
-                    ),
+                const SizedBox(height: 32.0),
+                // Google Button
+                ElevatedButton.icon(
+                  onPressed: _isGoogleLoading ? null : _loginWithGoogle,
+                  icon: _isGoogleLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.black87,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.login, color: Colors.black87),
+                  label: Text(
+                    _isGoogleLoading ? 'Signing in...' : 'Continue with Google',
+                    style: const TextStyle(fontSize: 16),
                   ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-
-                    // if (!RegExp(r'\S+@\S+\.\S+').hasMatch(value)) {
-                    //   return 'Please enter a valid email address';
-                    // }
-
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16.0),
-
-                // Password Text Field
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: !_isPasswordVisible,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    labelStyle: const TextStyle(color: Colors.white70),
-                    prefixIcon:
-                        const Icon(Icons.lock_outline, color: Colors.white70),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.blue),
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _isPasswordVisible
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: Colors.white70,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isPasswordVisible = !_isPasswordVisible;
-                        });
-                      },
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24.0),
-
-                // Login Button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFB39DDB), // Lavender color
+                    backgroundColor: Colors.white,
                     foregroundColor: Colors.black87,
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    padding: const EdgeInsets.symmetric(vertical: 14.0),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Text('Login'),
-                ),
-                const SizedBox(height: 16.0),
-
-                // Sign Up Link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      "Don't have an account?",
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        context.go('/register');
-                      },
-                      child: const Text(
-                        'Sign Up',
-                        style: TextStyle(color: Color(0xFFB39DDB)),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

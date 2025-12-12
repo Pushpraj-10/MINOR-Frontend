@@ -3,7 +3,7 @@ class ApiConfig {
 
   // Backend base URL (must include /api)
   // For Render:
-  static const String baseUrl = 'https://minor-backend-y0ge.onrender.com/api';
+  static const String baseUrl = 'https://minor-backend-firestore.onrender.com/api';
 
   // Auth
   static const String authLogin = '/auth/login';

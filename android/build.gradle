@@ -10,6 +10,9 @@ buildscript {
 
         // Kotlin Gradle plugin (use when Kotlin is used in build scripts or plugins)
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
+
+        // Google Services Gradle plugin for Firebase
+        classpath 'com.google.gms:google-services:4.4.0'
     }
 }
 

@@ -9,6 +9,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  firebase_core: ^4.2.1
+  firebase_auth: ^6.1.2
+  google_sign_in: 6.2.1
+
+dependency_overrides:
+  # Align Google Sign-In platform packages to avoid Pigeon type mismatch
+  google_sign_in: 6.2.1
+  google_sign_in_android: 6.2.1
+  google_sign_in_platform_interface: 2.5.0
   flutter_dotenv: ^5.1.0
   camera: ^0.11.2
   http: ^1.5.0
