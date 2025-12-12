@@ -16,6 +16,20 @@ class _LeavePageState extends State<LeavePage> {
   String? _error;
   DateTimeRange? _range;
   Map<String, dynamic>? _pendingLeave;
+  Map<String, dynamic>? _activeApprovedLeave;
+  bool get _isPendingActiveRange {
+    final pending = _pendingLeave;
+    if (pending == null) return false;
+    final now = _truncateToDate(DateTime.now());
+    final startStr = pending['startDate']?.toString();
+    final endStr = pending['endDate']?.toString();
+    if (startStr == null || endStr == null) return false;
+    final start = _truncateToDate(DateTime.parse(startStr));
+    final end = _truncateToDate(DateTime.parse(endStr));
+    final within = (now.isAtSameMomentAs(start) || now.isAfter(start)) &&
+        (now.isAtSameMomentAs(end) || now.isBefore(end));
+    return within;
+  }
 
   @override
   void initState() {
@@ -30,6 +44,14 @@ class _LeavePageState extends State<LeavePage> {
   }
 
   Future<void> _pickRange() async {
+    if (_isPendingActiveRange) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+                Text('Existing leave is active/pending. Wait until it ends.')),
+      );
+      return;
+    }
     final today = DateTime.now();
     final firstDate = DateTime(today.year, today.month, today.day);
     final maxEnd = firstDate.add(const Duration(days: 30));
@@ -75,6 +97,14 @@ class _LeavePageState extends State<LeavePage> {
   }
 
   Future<void> _submit() async {
+    if (_isPendingActiveRange) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Existing leave is active/pending. Submit again after it ends.')),
+      );
+      return;
+    }
     if (_range == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a date range')),
@@ -197,16 +227,37 @@ class _LeavePageState extends State<LeavePage> {
       if (!mounted) return;
 
       Map<String, dynamic>? pending;
+      Map<String, dynamic>? approvedActive;
       if (leaves.isNotEmpty) {
+        // Find first pending
         pending = leaves.firstWhere(
           (l) => (l['status'] as String?) == 'pending',
           orElse: () => {},
         );
         if (pending.isEmpty) pending = null;
+
+        // Find approved leave that covers today
+        final today = _truncateToDate(DateTime.now());
+        for (final l in leaves) {
+          final status = (l['status'] as String?) ?? '';
+          if (status != 'approved') continue;
+          final sStr = l['startDate']?.toString();
+          final eStr = l['endDate']?.toString();
+          if (sStr == null || eStr == null) continue;
+          final s = _truncateToDate(DateTime.tryParse(sStr) ?? today);
+          final e = _truncateToDate(DateTime.tryParse(eStr) ?? today);
+          final coversToday = (today.isAtSameMomentAs(s) || today.isAfter(s)) &&
+              (today.isAtSameMomentAs(e) || today.isBefore(e));
+          if (coversToday) {
+            approvedActive = l;
+            break;
+          }
+        }
       }
 
       setState(() {
         _pendingLeave = pending;
+        _activeApprovedLeave = approvedActive;
         _loading = false;
       });
     } catch (e) {
@@ -249,6 +300,87 @@ class _LeavePageState extends State<LeavePage> {
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFB39DDB)),
               child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    } else if (_activeApprovedLeave != null) {
+      // Show approved active leave info, hide request UI
+      final leave = _activeApprovedLeave!;
+      final start = leave['startDate'] != null
+          ? DateTime.tryParse(leave['startDate'].toString())
+          : null;
+      final end = leave['endDate'] != null
+          ? DateTime.tryParse(leave['endDate'].toString())
+          : null;
+      final isSingleDay = start != null && end != null && start == end;
+      final dateText = start != null && end != null
+          ? (isSingleDay
+              ? _fmtDate(start)
+              : '${_fmtDate(start)}  →  ${_fmtDate(end)}')
+          : '—';
+
+      body = Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Approved Leave',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 14),
+            Material(
+              color: const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: const Color(0xFF4CAF50).withOpacity(0.6)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.check_circle, color: Color(0xFF4CAF50)),
+                        SizedBox(width: 8),
+                        Text('Status', style: TextStyle(color: Colors.white70)),
+                        Spacer(),
+                        // status pill
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Dates',
+                        style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 4),
+                    Text(dateText,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600)),
+                    if (leave['reason'] != null) ...[
+                      const SizedBox(height: 12),
+                      const Text('Reason',
+                          style: TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 4),
+                      Text(leave['reason'].toString(),
+                          style: const TextStyle(color: Colors.white)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: _loadPendingLeave,
+              icon: const Icon(Icons.refresh, color: Color(0xFFB39DDB)),
+              label: const Text('Refresh status',
+                  style: TextStyle(color: Color(0xFFB39DDB))),
             ),
           ],
         ),
